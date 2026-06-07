@@ -21,7 +21,7 @@ import com.blindvision.arpose.pose.ArCorePoseProvider
 import com.blindvision.arpose.pose.PoseProvider
 import com.blindvision.arpose.pose.SimulatedPoseProvider
 import com.blindvision.arpose.pose.WorldPoseConsumer
-import com.blindvision.planning.AStarGridPlanner
+import com.blindvision.planning.VoronoiGridPlanner
 import com.google.ar.core.ArCoreApk
 import com.google.ar.core.exceptions.UnavailableException
 
@@ -73,8 +73,8 @@ class MainActivity : Activity() {
     }
 
     /**
-     * Load the occupancy mask, run A* from the bottom-center door to the large
-     * top-left room, and draw the resulting route over the plan. Done off the UI
+     * Load the occupancy mask, plan a Voronoi route from the bottom-center door to
+     * the large top-left room, and draw it over the plan. Done off the UI
      * thread because parsing the ~1.6 MB mask and planning over a 1448x1086 grid
      * is heavy.
      */
@@ -84,7 +84,7 @@ class MainActivity : Activity() {
                 val map = MaskNavMap.fromRawResource(applicationContext, R.raw.floor_plan_mask_labels)
                 val start = map.snapToTraversable(MaskNavMap.DEMO_START)
                 val goal = map.snapToTraversable(MaskNavMap.DEMO_GOAL)
-                val cells = AStarGridPlanner().plan(map.floor, start, goal) ?: emptyList()
+                val cells = VoronoiGridPlanner().plan(map.floor, start, goal) ?: emptyList()
 
                 // Decimate to keep per-frame path drawing light.
                 val step = maxOf(1, cells.size / 400)

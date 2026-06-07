@@ -13,7 +13,7 @@ import kotlin.math.max
  * module and to the on-screen [FloorPlanView].
  *
  * The mask is `data[row=y][col=x]` with codes {1: free, 2: elevator/staircase, 3: wall}.
- * The planner ([com.blindvision.planning.AStarGridPlanner]) works on a [Floor] indexed
+ * The planner ([com.blindvision.planning.VoronoiGridPlanner]) works on a [Floor] indexed
  * `grid[x][y]`, so cells are addressed as `GridPos(x = col, y = row)`. The displayed
  * `floor_plan_with_rooms.png` has the *same* resolution as the mask, so a grid cell maps
  * 1:1 to a source-bitmap pixel.
