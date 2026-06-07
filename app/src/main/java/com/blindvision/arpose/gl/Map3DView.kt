@@ -28,6 +28,9 @@ class Map3DView @JvmOverloads constructor(
         }
     )
 
+    /** When true, all touch interaction is blocked (until destination is selected). */
+    var interactionLocked = false
+
     private var lastX = 0f
     private var lastY = 0f
     private var pointerId = -1
@@ -60,7 +63,16 @@ class Map3DView @JvmOverloads constructor(
         renderer.clearDestination()
     }
 
+    fun setPortals(stairs: List<Pair<Float, Float>>, elevators: List<Pair<Float, Float>>) {
+        renderer.setPortals(stairs, elevators)
+    }
+
+    fun recenterOnUser() {
+        renderer.recenterOnUser()
+    }
+
     override fun onTouchEvent(event: MotionEvent): Boolean {
+        if (interactionLocked) return false
         scaleDetector.onTouchEvent(event)
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
@@ -73,7 +85,7 @@ class Map3DView @JvmOverloads constructor(
                     val dx = event.x - lastX
                     val dy = event.y - lastY
                     // Vertical drag: finger down tilts toward top-down; horizontal drag orbits.
-                    renderer.orbitBy(-dx * 0.005f, dy * 0.005f)
+                    renderer.orbitBy(-dx * 0.003f, dy * 0.003f)
                     lastX = event.x
                     lastY = event.y
                 }

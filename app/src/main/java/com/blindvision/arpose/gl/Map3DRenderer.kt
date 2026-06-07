@@ -41,10 +41,17 @@ class Map3DRenderer : GLSurfaceView.Renderer {
     @Volatile private var destCol = -1f
     @Volatile private var destRow = -1f
 
+    // Portal icons.
+    @Volatile private var stairsPositions: List<Pair<Float, Float>> = emptyList()
+    @Volatile private var elevatorPositions: List<Pair<Float, Float>> = emptyList()
+    @Volatile private var portalsDirty = false
+
     // Orbit camera state.
     @Volatile private var azimuth = 0.5f
     @Volatile private var elevation = (44.0 * PI / 180.0).toFloat()
     @Volatile private var radius = 2.5f
+    @Volatile private var cameraCenterX = 0f
+    @Volatile private var cameraCenterZ = 0f
 
     private var cell = 0.001f
 
@@ -65,11 +72,15 @@ class Map3DRenderer : GLSurfaceView.Renderer {
     private var pathCasingBuf: FloatBuffer? = null
     private var markerBuf: FloatBuffer? = null
     private var destMarkerBuf: FloatBuffer? = null
+    private var stairsIconBuf: FloatBuffer? = null
+    private var elevatorIconBuf: FloatBuffer? = null
     private var wallVertCount = 0
     private var pathCoreCount = 0
     private var pathCasingCount = 0
     private var markerVertCount = 0
     private var destMarkerVertCount = 0
+    private var stairsIconVertCount = 0
+    private var elevatorIconVertCount = 0
 
     private val proj = FloatArray(16)
     private val view = FloatArray(16)
@@ -109,6 +120,18 @@ class Map3DRenderer : GLSurfaceView.Renderer {
         destRow = -1f
     }
 
+    fun setPortals(stairs: List<Pair<Float, Float>>, elevators: List<Pair<Float, Float>>) {
+        stairsPositions = stairs
+        elevatorPositions = elevators
+        portalsDirty = true
+    }
+
+    fun recenterOnUser() {
+        if (userCol < 0f) return
+        cameraCenterX = wx(userCol)
+        cameraCenterZ = wz(userRow)
+    }
+
     fun orbitBy(dAzimuth: Float, dElevation: Float) {
         azimuth += dAzimuth
         elevation = (elevation + dElevation).coerceIn(0.2f, 1.45f)
@@ -137,6 +160,7 @@ class Map3DRenderer : GLSurfaceView.Renderer {
         buildDestMarker()
         // Force re-upload of texture/geometry on a fresh context.
         geometryDirty = true
+        portalsDirty = true
     }
 
     override fun onSurfaceChanged(gl: GL10?, width: Int, height: Int) {
@@ -147,16 +171,18 @@ class Map3DRenderer : GLSurfaceView.Renderer {
 
     override fun onDrawFrame(gl: GL10?) {
         if (geometryDirty) uploadGeometry()
+        if (portalsDirty) uploadPortals()
 
         GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT or GLES20.GL_DEPTH_BUFFER_BIT)
         GLES20.glUseProgram(program)
         GLES20.glUniform3f(uLightDir, -0.4f, 1.0f, -0.55f)
 
-        // Camera orbit around the origin.
-        val ex = radius * cos(elevation) * sin(azimuth)
+        // Camera orbits (cameraCenterX, 0, cameraCenterZ).
+        val cx = cameraCenterX; val cz = cameraCenterZ
+        val ex = cx + radius * cos(elevation) * sin(azimuth)
         val ey = radius * sin(elevation)
-        val ez = radius * cos(elevation) * cos(azimuth)
-        Matrix.setLookAtM(view, 0, ex, ey, ez, 0f, 0f, 0f, 0f, 1f, 0f)
+        val ez = cz + radius * cos(elevation) * cos(azimuth)
+        Matrix.setLookAtM(view, 0, ex, ey, ez, cx, 0f, cz, 0f, 1f, 0f)
         Matrix.multiplyMM(vp, 0, proj, 0, view, 0)
 
         // Floor (identity model).
@@ -189,6 +215,32 @@ class Map3DRenderer : GLSurfaceView.Renderer {
             GLES20.glUniform1f(uUseTex, 0f)
             GLES20.glUniform4f(uColor, 0.133f, 0.773f, 0.369f, 1f) // #22C55E
             drawBuffer(buf, pathCoreCount)
+        }
+
+        // Staircase icons (teal).
+        stairsIconBuf?.let { buf ->
+            GLES20.glUniform1f(uUseTex, 0f)
+            GLES20.glUniform4f(uColor, 0.369f, 0.918f, 0.831f, 1f) // #5EEAD4
+            for ((col, row) in stairsPositions) {
+                Matrix.setIdentityM(model, 0)
+                Matrix.translateM(model, 0, wx(col), 0f, wz(row))
+                Matrix.multiplyMM(mvp, 0, vp, 0, model, 0)
+                GLES20.glUniformMatrix4fv(uMvp, 1, false, mvp, 0)
+                drawBuffer(buf, stairsIconVertCount)
+            }
+        }
+
+        // Elevator icons (lavender).
+        elevatorIconBuf?.let { buf ->
+            GLES20.glUniform1f(uUseTex, 0f)
+            GLES20.glUniform4f(uColor, 0.769f, 0.710f, 0.992f, 1f) // #C4B5FD
+            for ((col, row) in elevatorPositions) {
+                Matrix.setIdentityM(model, 0)
+                Matrix.translateM(model, 0, wx(col), 0f, wz(row))
+                Matrix.multiplyMM(mvp, 0, vp, 0, model, 0)
+                GLES20.glUniformMatrix4fv(uMvp, 1, false, mvp, 0)
+                drawBuffer(buf, elevatorIconVertCount)
+            }
         }
 
         // Destination marker (pin).
@@ -247,6 +299,12 @@ class Map3DRenderer : GLSurfaceView.Renderer {
             GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_WRAP_T, GLES20.GL_CLAMP_TO_EDGE)
             GLUtils.texImage2D(GLES20.GL_TEXTURE_2D, 0, bmp, 0)
         }
+    }
+
+    private fun uploadPortals() {
+        portalsDirty = false
+        buildStairsIcon()
+        buildElevatorIcon()
     }
 
     private fun wx(col: Float) = (col - cols / 2f) * cell
@@ -324,6 +382,54 @@ class Map3DRenderer : GLSurfaceView.Renderer {
         for (i in data.indices) arr[i] = data[i]
         wallBuf = arr.toBuffer()
         wallVertCount = data.size / 8
+    }
+
+    /** 3-step ascending staircase icon, centered at origin, sized relative to [cell]. */
+    private fun buildStairsIcon() {
+        val sw = cell * 14f    // width per step
+        val sd = cell * 20f    // depth of each step
+        val sh = cell * 16f    // height of one step riser
+        val steps = 3
+        val totalW = sw * steps
+        val data = ArrayList<Float>()
+        for (i in 0 until steps) {
+            val x0 = -totalW / 2f + i * sw
+            addBox(data, x0, 0f, -sd / 2f, sw, sh * (i + 1), sd)
+        }
+        val arr = FloatArray(data.size)
+        for (i in data.indices) arr[i] = data[i]
+        stairsIconBuf = arr.toBuffer()
+        stairsIconVertCount = data.size / 8
+    }
+
+    /** Doorframe-shaped elevator icon, centered at origin, sized relative to [cell]. */
+    private fun buildElevatorIcon() {
+        val ph = cell * 48f    // pillar height
+        val pw = cell * 8f     // pillar width & depth
+        val gap = cell * 16f   // opening between pillars
+        val totalW = pw * 2 + gap
+        val barH = cell * 10f  // header bar height
+        val data = ArrayList<Float>()
+        // Left pillar
+        addBox(data, -totalW / 2f, 0f, -pw / 2f, pw, ph, pw)
+        // Right pillar
+        addBox(data, totalW / 2f - pw, 0f, -pw / 2f, pw, ph, pw)
+        // Top header bar
+        addBox(data, -totalW / 2f, ph, -pw / 2f, totalW, barH, pw)
+        val arr = FloatArray(data.size)
+        for (i in data.indices) arr[i] = data[i]
+        elevatorIconBuf = arr.toBuffer()
+        elevatorIconVertCount = data.size / 8
+    }
+
+    /** Adds a box with 5 faces (no bottom) to [data]. Origin at (x0, y0, z0), size (w, h, d). */
+    private fun addBox(data: ArrayList<Float>, x0: Float, y0: Float, z0: Float, w: Float, h: Float, d: Float) {
+        val x1 = x0 + w; val y1 = y0 + h; val z1 = z0 + d
+        quad(data, x0, y1, z0, x0, y1, z1, x1, y1, z1, x1, y1, z0, 0f, 1f, 0f)  // top
+        quad(data, x0, y0, z1, x1, y0, z1, x1, y1, z1, x0, y1, z1, 0f, 0f, 1f)  // front +Z
+        quad(data, x1, y0, z0, x0, y0, z0, x0, y1, z0, x1, y1, z0, 0f, 0f, -1f) // back -Z
+        quad(data, x1, y0, z1, x1, y0, z0, x1, y1, z0, x1, y1, z1, 1f, 0f, 0f)  // right +X
+        quad(data, x0, y0, z0, x0, y0, z1, x0, y1, z1, x0, y1, z0, -1f, 0f, 0f) // left -X
     }
 
     private fun buildDestMarker() {

@@ -48,6 +48,8 @@ class MainActivity : Activity() {
     private lateinit var searchButton: ImageButton
     private lateinit var destinationLabel: TextView
     private lateinit var searchStatus: TextView
+    private lateinit var destinationPrompt: TextView
+    private lateinit var recenterButton: ImageButton
     private lateinit var map3dView: Map3DView
     private lateinit var glSurfaceView: GLSurfaceView
 
@@ -71,6 +73,8 @@ class MainActivity : Activity() {
         searchButton = findViewById(R.id.search_button)
         destinationLabel = findViewById(R.id.destination_label)
         searchStatus = findViewById(R.id.search_status)
+        destinationPrompt = findViewById(R.id.destination_prompt)
+        recenterButton = findViewById(R.id.recenter_button)
         map3dView = findViewById(R.id.map_3d)
         glSurfaceView = findViewById(R.id.gl_surface)
 
@@ -83,12 +87,15 @@ class MainActivity : Activity() {
                 false
             }
         }
+        recenterButton.setOnClickListener { map3dView.recenterOnUser() }
 
         consumer = WorldPoseConsumer { readout ->
             runOnUiThread { updateUserOnMap(readout) }
         }
 
-        loadMapAndPlan(MaskNavMap.DEMO_GOAL, null)
+        // Lock interaction until the user picks a destination.
+        map3dView.interactionLocked = true
+        loadMapOnly()
     }
 
     private fun submitSearch() {
@@ -101,6 +108,39 @@ class MainActivity : Activity() {
     private fun hideKeyboard() {
         val imm = getSystemService(INPUT_METHOD_SERVICE) as InputMethodManager
         imm.hideSoftInputFromWindow(searchInput.windowToken, 0)
+    }
+
+    /**
+     * Load the occupancy mask and build the 3D scene without a route.
+     * The user is prompted to search for a destination.
+     */
+    private fun loadMapOnly() {
+        Thread {
+            try {
+                val map = MaskNavMap.fromRawResource(applicationContext, R.raw.floor_plan_mask_labels)
+                val floor3d = MaskMapRenderer.render3dFloorTexture(map)
+                val wallRects = WallMesher.wallRects(map.floor, dilate = 2)
+                cachedFloor3d = floor3d
+                cachedWallRects = wallRects
+                runOnUiThread { applyMapOnly(map, floor3d, wallRects) }
+            } catch (e: Exception) {
+                Log.e(WorldPoseConsumer.LOG_TAG, "Map load failed", e)
+                runOnUiThread {
+                    loadingText.text = "Map failed to load.\n${e.javaClass.simpleName}: ${e.message}"
+                }
+            }
+        }.start()
+    }
+
+    private fun applyMapOnly(map: MaskNavMap, floor3d: Bitmap, wallRects: List<WallMesher.Rect>) {
+        loadingText.visibility = View.GONE
+        navMap = map
+        map3dView.setData(floor3d, wallRects, emptyList(), map.cols, map.rows)
+        val groups = MaskMapRenderer.portalGroups(map.floor)
+        map3dView.setPortals(
+            stairs = groups.filter { it.isStairs }.map { it.cx to it.cy },
+            elevators = groups.filter { !it.isStairs }.map { it.cx to it.cy },
+        )
     }
 
     /**
@@ -163,26 +203,6 @@ class MainActivity : Activity() {
         val minX = nums[0]; val minY = nums[1]; val maxX = nums[2]; val maxY = nums[3]
         if (minX > maxX || minY > maxY) return null
         return GridPos((minX + maxX) / 2, (minY + maxY) / 2)
-    }
-
-    /**
-     * Load the occupancy mask and plan a route to [goal]. Done off the UI thread
-     * because parsing the ~1.6 MB mask and planning over a 1448x1086 grid is heavy.
-     */
-    private fun loadMapAndPlan(goal: GridPos, label: String?) {
-        Thread {
-            try {
-                val map = MaskNavMap.fromRawResource(applicationContext, R.raw.floor_plan_mask_labels)
-                val start = routeStart(map)
-                val planned = planRoute(map, start, goal)
-                runOnUiThread { applyPlannedRoute(map, planned, goal, label) }
-            } catch (e: Exception) {
-                Log.e(WorldPoseConsumer.LOG_TAG, "Route planning failed", e)
-                runOnUiThread {
-                    loadingText.text = "Map failed to load.\n${e.javaClass.simpleName}: ${e.message}"
-                }
-            }
-        }.start()
     }
 
     private fun replanRoute(goal: GridPos, label: String) {
@@ -260,6 +280,9 @@ class MainActivity : Activity() {
         map3dView.setDestination(planned.goal.x.toFloat(), planned.goal.y.toFloat())
 
         if (label != null) {
+            // Destination selected — reveal the map and unlock interaction.
+            destinationPrompt.visibility = View.GONE
+            map3dView.interactionLocked = false
             destinationLabel.visibility = View.VISIBLE
             destinationLabel.text = getString(R.string.destination_selected, label)
         } else {

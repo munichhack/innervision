@@ -7,4 +7,6 @@
     <string name="search_resolving">Finding destination…</string>
     <string name="search_not_found">Could not find that destination.</string>
     <string name="search_no_api_key">Gemini API key is not configured.</string>
+    <string name="destination_prompt">Search for a destination\nto begin navigation</string>
+    <string name="recenter_desc">Center map on user</string>
 </resources>

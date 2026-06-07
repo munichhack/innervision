@@ -19,6 +19,8 @@ import kotlin.math.min
  * oblique prisms (lit top, shaded faces, ground shadow) over a dark, atmospheric
  * background — inspired by Apple Maps' 3D city view.
  */
+data class PortalGroup(val cx: Float, val cy: Float, val isStairs: Boolean)
+
 object MaskMapRenderer {
 
     private const val EXTRUDE_CELLS = 2
@@ -58,6 +60,36 @@ object MaskMapRenderer {
     private val COLOR_STAIRS_BORDER = Color.parseColor("#0F766E")
     private val COLOR_ELEVATOR = Color.parseColor("#C4B5FD")
     private val COLOR_ELEVATOR_BORDER = Color.parseColor("#6D28D9")
+
+    /** Returns the centroid and type of every portal cluster on [floor]. */
+    fun portalGroups(floor: Floor): List<PortalGroup> {
+        val seen = HashSet<GridPos>()
+        val result = ArrayList<PortalGroup>()
+        for (seed in floor.portalCells()) {
+            if (seed in seen) continue
+            val stack = ArrayDeque<GridPos>()
+            stack.addLast(seed); seen.add(seed)
+            val cells = ArrayList<GridPos>()
+            while (stack.isNotEmpty()) {
+                val c = stack.removeLast(); cells.add(c)
+                for ((dx, dy) in PORTAL_NEIGHBORS) {
+                    val n = GridPos(c.x + dx, c.y + dy)
+                    if (n in seen || !floor.isPortal(n.x, n.y)) continue
+                    seen.add(n); stack.addLast(n)
+                }
+            }
+            if (cells.isEmpty()) continue
+            var minX = cells[0].x; var maxX = cells[0].x
+            var minY = cells[0].y; var maxY = cells[0].y
+            for (c in cells) {
+                minX = min(minX, c.x); maxX = max(maxX, c.x)
+                minY = min(minY, c.y); maxY = max(maxY, c.y)
+            }
+            val spanX = maxX - minX + 1; val spanY = maxY - minY + 1
+            result.add(PortalGroup((minX + maxX) / 2f, (minY + maxY) / 2f, spanX > spanY * 1.35f))
+        }
+        return result
+    }
 
     /** Flat 2.5D map: wood floor + charcoal walls with a soft drop shadow. */
     fun render25d(map: MaskNavMap): Bitmap = render(map)
