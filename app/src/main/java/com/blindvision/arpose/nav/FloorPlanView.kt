@@ -95,10 +95,8 @@ class FloorPlanView @JvmOverloads constructor(
     private val scratchPath = Path()
 
     init {
-        // Default to the room-labelled plan, which is pixel-aligned 1:1 with the
-        // occupancy mask so the planned path overlays exactly.
         setFloorPlan(
-            BitmapFactory.decodeResource(resources, R.drawable.floor_plan_with_rooms)
+            BitmapFactory.decodeResource(resources, R.drawable.floor_plan)
         )
     }
 

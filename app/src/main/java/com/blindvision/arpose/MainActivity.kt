@@ -18,7 +18,6 @@ import com.blindvision.arpose.pose.PoseProvider
 import com.blindvision.arpose.pose.SimulatedPoseProvider
 import com.blindvision.arpose.pose.WorldPoseConsumer
 import com.blindvision.planning.AStarGridPlanner
-import com.blindvision.planning.Reachability
 import com.google.ar.core.ArCoreApk
 import com.google.ar.core.exceptions.UnavailableException
 
@@ -34,7 +33,6 @@ import com.google.ar.core.exceptions.UnavailableException
  */
 class MainActivity : Activity() {
 
-    private lateinit var statusText: TextView
     private lateinit var poseText: TextView
     private lateinit var floorPlanView: FloorPlanView
     private lateinit var glSurfaceView: GLSurfaceView
@@ -48,7 +46,6 @@ class MainActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
-        statusText = findViewById(R.id.status_text)
         poseText = findViewById(R.id.pose_text)
         floorPlanView = findViewById(R.id.floor_plan)
         glSurfaceView = findViewById(R.id.gl_surface)
@@ -61,16 +58,17 @@ class MainActivity : Activity() {
     }
 
     /**
-     * Load the occupancy mask, run A* from the VIO origin to the farthest reachable
-     * cell, and draw the resulting route over the plan. Done off the UI thread because
-     * parsing the ~1.6 MB mask and planning over a 1448x1086 grid is heavy.
+     * Load the occupancy mask, run A* from the bottom-center door to the large
+     * top-left room, and draw the resulting route over the plan. Done off the UI
+     * thread because parsing the ~1.6 MB mask and planning over a 1448x1086 grid
+     * is heavy.
      */
     private fun planDemoRoute() {
         Thread {
             try {
                 val map = MaskNavMap.fromRawResource(applicationContext, R.raw.floor_plan_mask_labels)
-                val start = map.snapToTraversable(map.originPos)
-                val (goal, hops) = Reachability.farthestReachable(map.floor, start)
+                val start = map.snapToTraversable(MaskNavMap.DEMO_START)
+                val goal = map.snapToTraversable(MaskNavMap.DEMO_GOAL)
                 val cells = AStarGridPlanner().plan(map.floor, start, goal) ?: emptyList()
 
                 // Decimate to keep per-frame path drawing light.
@@ -82,7 +80,7 @@ class MainActivity : Activity() {
 
                 Log.i(
                     WorldPoseConsumer.LOG_TAG,
-                    "Planned route: ${cells.size} cells (reach=$hops) start=$start goal=$goal"
+                    "Planned route: ${cells.size} cells start=$start goal=$goal"
                 )
                 runOnUiThread {
                     floorPlanView.applyMaskCalibration(map)
@@ -110,10 +108,8 @@ class MainActivity : Activity() {
     private fun maybeStart() {
         if (started) return
         when (ArCoreApk.getInstance().checkAvailability(this)) {
-            ArCoreApk.Availability.UNKNOWN_CHECKING -> {
-                setStatus("Checking ARCore availability…")
+            ArCoreApk.Availability.UNKNOWN_CHECKING ->
                 mainHandler.postDelayed({ maybeStart() }, 200)
-            }
             ArCoreApk.Availability.SUPPORTED_INSTALLED ->
                 startArCoreOrRequestPermission()
             ArCoreApk.Availability.SUPPORTED_NOT_INSTALLED,
@@ -139,7 +135,6 @@ class MainActivity : Activity() {
             p.start { pose -> consumer.onPose(pose) }
             provider = p
             started = true
-            setStatus("Source: ARCORE — real 6-DoF world tracking active.")
             Log.i(WorldPoseConsumer.LOG_TAG, "Pose source = ARCORE")
         } catch (e: UnavailableException) {
             Log.e(WorldPoseConsumer.LOG_TAG, "ARCore init failed", e)
@@ -150,10 +145,8 @@ class MainActivity : Activity() {
     private fun requestArInstall() {
         try {
             when (ArCoreApk.getInstance().requestInstall(this, !arInstallRequested)) {
-                ArCoreApk.InstallStatus.INSTALL_REQUESTED -> {
+                ArCoreApk.InstallStatus.INSTALL_REQUESTED ->
                     arInstallRequested = true
-                    setStatus("Requesting Google Play Services for AR…")
-                }
                 ArCoreApk.InstallStatus.INSTALLED ->
                     startArCoreOrRequestPermission()
             }
@@ -169,7 +162,6 @@ class MainActivity : Activity() {
         p.start { pose -> consumer.onPose(pose) }
         provider = p
         started = true
-        setStatus("$reason\nSource: SIMULATED — synthetic 6-DoF trajectory.")
         Log.i(WorldPoseConsumer.LOG_TAG, "Pose source = SIMULATED ($reason)")
     }
 
@@ -204,10 +196,6 @@ class MainActivity : Activity() {
             append("x=% .2f  y=% .2f  z=% .2f m\n".format(location.x, location.y, location.z))
             append("yaw=% .0f°  speed=%.2f m/s".format(r.yawDeg, r.speedMetersPerSec))
         }
-    }
-
-    private fun setStatus(text: String) {
-        statusText.text = text
     }
 
     private companion object {
