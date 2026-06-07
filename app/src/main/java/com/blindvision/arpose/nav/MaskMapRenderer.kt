@@ -62,12 +62,16 @@ object MaskMapRenderer {
     /** Flat 2.5D map: wood floor + charcoal walls with a soft drop shadow. */
     fun render25d(map: MaskNavMap): Bitmap = render(map)
 
+    // Clean flat floor for the 3D view (no wood grain).
+    private val COLOR_FLOOR_3D = Color.parseColor("#ECEEF2")
+    private val COLOR_PORTAL_TILE = Color.parseColor("#DDE2EA")
+
     /**
-     * Floor texture for the OpenGL 3D view: wood floor + portal tiles + baked route,
+     * Floor texture for the OpenGL 3D view: a clean flat floor + subtle portal tiles,
      * with the exterior left fully transparent so the GL clear colour shows through.
-     * Walls are NOT drawn here — they are real extruded geometry in the renderer.
+     * Walls and the route are real 3D geometry in the renderer, not baked here.
      */
-    fun render3dFloorTexture(map: MaskNavMap, routeCells: List<GridPos>): Bitmap {
+    fun render3dFloorTexture(map: MaskNavMap): Bitmap {
         val floor = map.floor
         val w = floor.width
         val h = floor.height
@@ -76,8 +80,8 @@ object MaskMapRenderer {
         for (x in 0 until w) {
             for (y in 0 until h) {
                 when (floor.typeAt(x, y)) {
-                    CellType.WALKABLE -> pixels[pixelIndex(w, x, y)] = woodColor(x, y, dim = true)
-                    CellType.PORTAL -> pixels[pixelIndex(w, x, y)] = COLOR_STAIRS
+                    CellType.WALKABLE -> pixels[pixelIndex(w, x, y)] = COLOR_FLOOR_3D
+                    CellType.PORTAL -> pixels[pixelIndex(w, x, y)] = COLOR_PORTAL_TILE
                     else -> Unit // leave transparent
                 }
             }
@@ -86,34 +90,7 @@ object MaskMapRenderer {
         val full = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
         full.setPixels(pixels, 0, w, 0, 0, w, h)
         drawPortalMarkers(full, floor)
-        bakeRoute(full, routeCells)
         return downscale(full)
-    }
-
-    private fun bakeRoute(bitmap: Bitmap, routeCells: List<GridPos>) {
-        if (routeCells.size < 2) return
-        val canvas = Canvas(bitmap)
-        val path = android.graphics.Path()
-        path.moveTo(routeCells[0].x.toFloat(), routeCells[0].y.toFloat())
-        for (i in 1 until routeCells.size) {
-            path.lineTo(routeCells[i].x.toFloat(), routeCells[i].y.toFloat())
-        }
-        val glow = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.parseColor("#66FFFFFF")
-            style = Paint.Style.STROKE
-            strokeWidth = 26f
-            strokeCap = Paint.Cap.ROUND
-            strokeJoin = Paint.Join.ROUND
-        }
-        val line = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.parseColor("#2563EB")
-            style = Paint.Style.STROKE
-            strokeWidth = 16f
-            strokeCap = Paint.Cap.ROUND
-            strokeJoin = Paint.Join.ROUND
-        }
-        canvas.drawPath(path, glow)
-        canvas.drawPath(path, line)
     }
 
     /** Alias kept for existing call sites. */

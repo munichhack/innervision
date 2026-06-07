@@ -97,13 +97,13 @@ class MainActivity : Activity() {
                 val map25d = MaskMapRenderer.render25d(map)
                 val calibration = map.calibrationFor(map25d.width, map25d.height)
 
-                // 3D assets: wall geometry + a wood floor texture with the route baked in.
+                // 3D assets: extruded wall geometry + flat floor texture + route ribbon.
                 val routeCellsDecimated = ArrayList<com.blindvision.planning.GridPos>()
                 var k = 0
                 while (k < cells.size) { routeCellsDecimated.add(cells[k]); k += step }
                 if (cells.isNotEmpty()) routeCellsDecimated.add(cells.last())
-                val wallRects = WallMesher.wallRects(map.floor)
-                val floor3d = MaskMapRenderer.render3dFloorTexture(map, routeCellsDecimated)
+                val wallRects = WallMesher.wallRects(map.floor, dilate = 2)
+                val floor3d = MaskMapRenderer.render3dFloorTexture(map)
 
                 Log.i(
                     WorldPoseConsumer.LOG_TAG,
@@ -116,7 +116,7 @@ class MainActivity : Activity() {
                     navMap = map
                     floorPlanView.setMapBitmaps(map25d, map25d, calibration)
                     floorPlanView.setPath(route)
-                    map3dView.setData(floor3d, wallRects, map.cols, map.rows)
+                    map3dView.setData(floor3d, wallRects, routeCellsDecimated, map.cols, map.rows)
                 }
             } catch (e: Exception) {
                 Log.e(WorldPoseConsumer.LOG_TAG, "Route planning failed", e)

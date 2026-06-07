@@ -29,6 +29,7 @@ class Map3DRenderer : GLSurfaceView.Renderer {
     @Volatile private var rows = 1
     @Volatile private var pendingFloor: Bitmap? = null
     @Volatile private var wallRects: List<WallMesher.Rect> = emptyList()
+    @Volatile private var routeCells: List<com.blindvision.planning.GridPos> = emptyList()
     @Volatile private var geometryDirty = false
 
     // Live user marker (grid coords + heading). null until first pose.
@@ -37,9 +38,9 @@ class Map3DRenderer : GLSurfaceView.Renderer {
     @Volatile private var userHeading = 0f
 
     // Orbit camera state.
-    @Volatile private var azimuth = 0.6f
-    @Volatile private var elevation = (50.0 * PI / 180.0).toFloat()
-    @Volatile private var radius = 2.7f
+    @Volatile private var azimuth = 0.5f
+    @Volatile private var elevation = (44.0 * PI / 180.0).toFloat()
+    @Volatile private var radius = 2.5f
 
     private var cell = 0.001f
 
@@ -56,8 +57,12 @@ class Map3DRenderer : GLSurfaceView.Renderer {
     private var floorTex = 0
     private var floorBuf: FloatBuffer? = null
     private var wallBuf: FloatBuffer? = null
+    private var pathCoreBuf: FloatBuffer? = null
+    private var pathCasingBuf: FloatBuffer? = null
     private var markerBuf: FloatBuffer? = null
     private var wallVertCount = 0
+    private var pathCoreCount = 0
+    private var pathCasingCount = 0
     private var markerVertCount = 0
 
     private val proj = FloatArray(16)
@@ -66,11 +71,18 @@ class Map3DRenderer : GLSurfaceView.Renderer {
     private val mvp = FloatArray(16)
     private val model = FloatArray(16)
 
-    fun setData(floor: Bitmap, rects: List<WallMesher.Rect>, cols: Int, rows: Int) {
+    fun setData(
+        floor: Bitmap,
+        rects: List<WallMesher.Rect>,
+        route: List<com.blindvision.planning.GridPos>,
+        cols: Int,
+        rows: Int,
+    ) {
         this.cols = cols
         this.rows = rows
         this.cell = 2f / maxOf(cols, rows)
         this.wallRects = rects
+        this.routeCells = route
         this.pendingFloor = floor
         this.geometryDirty = true
     }
@@ -143,11 +155,23 @@ class Map3DRenderer : GLSurfaceView.Renderer {
             drawBuffer(buf, 6)
         }
 
-        // Walls (solid charcoal, lit by normals).
+        // Walls (solid, lit by normals).
         wallBuf?.let { buf ->
             GLES20.glUniform1f(uUseTex, 0f)
-            GLES20.glUniform4f(uColor, 0.20f, 0.22f, 0.25f, 1f)
+            GLES20.glUniform4f(uColor, 0.255f, 0.275f, 0.318f, 1f)
             drawBuffer(buf, wallVertCount)
+        }
+
+        // Route ribbon: white casing under a vivid blue core.
+        pathCasingBuf?.let { buf ->
+            GLES20.glUniform1f(uUseTex, 0f)
+            GLES20.glUniform4f(uColor, 0.94f, 0.96f, 1.0f, 1f)
+            drawBuffer(buf, pathCasingCount)
+        }
+        pathCoreBuf?.let { buf ->
+            GLES20.glUniform1f(uUseTex, 0f)
+            GLES20.glUniform4f(uColor, 0.149f, 0.471f, 1.0f, 1f) // #2678FF
+            drawBuffer(buf, pathCoreCount)
         }
 
         // User marker.
@@ -181,6 +205,7 @@ class Map3DRenderer : GLSurfaceView.Renderer {
         geometryDirty = false
         buildFloor()
         buildWalls()
+        buildPath()
         pendingFloor?.let { bmp ->
             if (floorTex != 0) GLES20.glDeleteTextures(1, intArrayOf(floorTex), 0)
             val ids = IntArray(1)
@@ -213,8 +238,38 @@ class Map3DRenderer : GLSurfaceView.Renderer {
         floorBuf = v.toBuffer()
     }
 
+    private fun buildPath() {
+        if (routeCells.size < 2) { pathCoreBuf = null; pathCasingBuf = null; return }
+        pathCoreBuf = buildRibbon(cell * 7.0f, cell * 6.5f).also { pathCoreCount = it.capacity() / 8 }
+        pathCasingBuf = buildRibbon(cell * 11.5f, cell * 5.0f).also { pathCasingCount = it.capacity() / 8 }
+    }
+
+    private fun buildRibbon(halfWidth: Float, y: Float): FloatBuffer {
+        val data = ArrayList<Float>(routeCells.size * 6 * 8)
+        for (i in 0 until routeCells.size - 1) {
+            val ax = wx(routeCells[i].x.toFloat()); val az = wz(routeCells[i].y.toFloat())
+            val bx = wx(routeCells[i + 1].x.toFloat()); val bz = wz(routeCells[i + 1].y.toFloat())
+            var dx = bx - ax; var dz = bz - az
+            val len = kotlin.math.sqrt(dx * dx + dz * dz).takeIf { it > 1e-7f } ?: continue
+            dx /= len; dz /= len
+            val px = -dz * halfWidth; val pz = dx * halfWidth // perpendicular in XZ
+            // Quad a+ , a- , b- , b+  (normal up).
+            quad(
+                data,
+                ax + px, y, az + pz,
+                ax - px, y, az - pz,
+                bx - px, y, bz - pz,
+                bx + px, y, bz + pz,
+                0f, 1f, 0f,
+            )
+        }
+        val arr = FloatArray(data.size)
+        for (i in data.indices) arr[i] = data[i]
+        return arr.toBuffer()
+    }
+
     private fun buildWalls() {
-        val wallH = cell * 26f
+        val wallH = cell * 55f
         val data = ArrayList<Float>(wallRects.size * 5 * 6 * 8)
         for (r in wallRects) {
             val x0 = wx(r.x.toFloat()); val x1 = wx((r.x + r.w).toFloat())
@@ -349,7 +404,7 @@ class Map3DRenderer : GLSurfaceView.Renderer {
             varying vec2 vUv;
             void main() {
                 float diff = max(dot(normalize(vNormal), normalize(uLightDir)), 0.0);
-                float light = 0.45 + 0.55 * diff;
+                float light = 0.40 + 0.60 * diff;
                 vec4 base = (uUseTex > 0.5) ? texture2D(uSampler, vUv) : uColor;
                 if (base.a < 0.1) discard;
                 gl_FragColor = vec4(base.rgb * light, base.a);

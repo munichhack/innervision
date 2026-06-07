@@ -17,11 +17,71 @@ object WallMesher {
     /** Rectangle in grid cells: [x], [y] top-left, [w] x [h] size. */
     data class Rect(val x: Int, val y: Int, val w: Int, val h: Int)
 
-    fun wallRects(floor: Floor): List<Rect> {
+    fun wallRects(floor: Floor, dilate: Int = 0): List<Rect> {
         val w = floor.width
         val h = floor.height
-        val isWall = booleanWallMask(floor, w, h)
+        var isWall = booleanWallMask(floor, w, h)
+        isWall = dropSmallComponents(isWall, w, h, minArea = 40)
+        if (dilate > 0) isWall = dilateMask(isWall, w, h, dilate)
         return greedyRects(isWall, w, h)
+    }
+
+    /** Remove tiny isolated wall blobs (mask speckle) so they don't become pillars. */
+    private fun dropSmallComponents(src: BooleanArray, w: Int, h: Int, minArea: Int): BooleanArray {
+        val out = src.copyOf()
+        val visited = BooleanArray(w * h)
+        val queue = ArrayDeque<Int>()
+        val comp = ArrayList<Int>()
+        for (start in 0 until w * h) {
+            if (!src[start] || visited[start]) continue
+            comp.clear()
+            visited[start] = true
+            queue.addLast(start)
+            while (queue.isNotEmpty()) {
+                val i = queue.removeLast()
+                comp.add(i)
+                val x = i % w
+                val y = i / w
+                if (x > 0 && src[i - 1] && !visited[i - 1]) { visited[i - 1] = true; queue.addLast(i - 1) }
+                if (x < w - 1 && src[i + 1] && !visited[i + 1]) { visited[i + 1] = true; queue.addLast(i + 1) }
+                if (y > 0 && src[i - w] && !visited[i - w]) { visited[i - w] = true; queue.addLast(i - w) }
+                if (y < h - 1 && src[i + w] && !visited[i + w]) { visited[i + w] = true; queue.addLast(i + w) }
+            }
+            if (comp.size < minArea) for (i in comp) out[i] = false
+        }
+        return out
+    }
+
+    /** Chebyshev dilation so thin walls read as solid, bulky volumes in 3D. */
+    private fun dilateMask(src: BooleanArray, w: Int, h: Int, r: Int): BooleanArray {
+        // Separable: dilate horizontally then vertically.
+        val tmp = BooleanArray(w * h)
+        for (y in 0 until h) {
+            for (x in 0 until w) {
+                var on = false
+                var dx = -r
+                while (dx <= r) {
+                    val xx = x + dx
+                    if (xx in 0 until w && src[y * w + xx]) { on = true; break }
+                    dx++
+                }
+                tmp[y * w + x] = on
+            }
+        }
+        val out = BooleanArray(w * h)
+        for (y in 0 until h) {
+            for (x in 0 until w) {
+                var on = false
+                var dy = -r
+                while (dy <= r) {
+                    val yy = y + dy
+                    if (yy in 0 until h && tmp[yy * w + x]) { on = true; break }
+                    dy++
+                }
+                out[y * w + x] = on
+            }
+        }
+        return out
     }
 
     private fun booleanWallMask(floor: Floor, w: Int, h: Int): BooleanArray {

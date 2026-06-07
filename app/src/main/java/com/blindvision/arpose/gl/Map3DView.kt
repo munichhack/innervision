@@ -38,8 +38,14 @@ class Map3DView @JvmOverloads constructor(
         renderMode = RENDERMODE_CONTINUOUSLY
     }
 
-    fun setData(floor: Bitmap, rects: List<WallMesher.Rect>, cols: Int, rows: Int) {
-        renderer.setData(floor, rects, cols, rows)
+    fun setData(
+        floor: Bitmap,
+        rects: List<WallMesher.Rect>,
+        route: List<com.blindvision.planning.GridPos>,
+        cols: Int,
+        rows: Int,
+    ) {
+        renderer.setData(floor, rects, route, cols, rows)
     }
 
     fun setUser(col: Float, row: Float, headingRad: Float) {
