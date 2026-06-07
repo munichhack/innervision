@@ -8,3 +8,6 @@
 app/build/
 .externalNativeBuild/
 .cxx/
+
+# Project-local, self-contained toolchain (JDK + Android SDK). Safe to delete.
+/.toolchain/

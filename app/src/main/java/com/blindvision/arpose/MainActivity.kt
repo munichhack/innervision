@@ -10,6 +10,8 @@ import android.os.Looper
 import android.util.Log
 import android.view.View
 import android.widget.TextView
+import com.blindvision.arpose.nav.FloorPlanView
+import com.blindvision.arpose.nav.NavLocation
 import com.blindvision.arpose.pose.ArCorePoseProvider
 import com.blindvision.arpose.pose.PoseProvider
 import com.blindvision.arpose.pose.SimulatedPoseProvider
@@ -31,7 +33,7 @@ class MainActivity : Activity() {
 
     private lateinit var statusText: TextView
     private lateinit var poseText: TextView
-    private lateinit var derivedText: TextView
+    private lateinit var floorPlanView: FloorPlanView
     private lateinit var glSurfaceView: GLSurfaceView
 
     private val mainHandler = Handler(Looper.getMainLooper())
@@ -45,7 +47,7 @@ class MainActivity : Activity() {
         setContentView(R.layout.activity_main)
         statusText = findViewById(R.id.status_text)
         poseText = findViewById(R.id.pose_text)
-        derivedText = findViewById(R.id.derived_text)
+        floorPlanView = findViewById(R.id.floor_plan)
         glSurfaceView = findViewById(R.id.gl_surface)
 
         consumer = WorldPoseConsumer { readout ->
@@ -150,21 +152,17 @@ class MainActivity : Activity() {
     }
 
     private fun render(r: WorldPoseConsumer.Readout) {
+        // ARCore world frame is Y-up; adapt into the planner's z-up floor-plan
+        // convention so the dot lands in the plane of the floor plan and the
+        // height (ty) drives the floor index.
+        val location = NavLocation.fromArCore(r.tx, r.ty, r.tz)
+        val headingRad = Math.toRadians(r.yawDeg.toDouble()).toFloat()
+        floorPlanView.setUserLocation(location, headingRad)
+
         poseText.text = buildString {
-            append("WORLD POSITION (meters)\n")
-            append("  x = % .3f\n".format(r.tx))
-            append("  y = % .3f\n".format(r.ty))
-            append("  z = % .3f\n".format(r.tz))
-            append("\nORIENTATION (degrees)\n")
-            append("  yaw   = % .1f\n".format(r.yawDeg))
-            append("  pitch = % .1f\n".format(r.pitchDeg))
-            append("  roll  = % .1f".format(r.rollDeg))
-        }
-        derivedText.text = buildString {
-            append("DOWNSTREAM METRICS\n")
-            append("  poses     = ${r.poseCount}\n")
-            append("  path len  = %.3f m\n".format(r.pathLengthMeters))
-            append("  speed     = %.3f m/s".format(r.speedMetersPerSec))
+            append("floor ${floorPlanView.currentFloor()}  •  ${r.source}\n")
+            append("x=% .2f  y=% .2f  z=% .2f m\n".format(location.x, location.y, location.z))
+            append("yaw=% .0f°  speed=%.2f m/s".format(r.yawDeg, r.speedMetersPerSec))
         }
     }
 
