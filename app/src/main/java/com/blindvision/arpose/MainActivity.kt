@@ -11,11 +11,14 @@ import android.util.Log
 import android.view.View
 import android.widget.TextView
 import com.blindvision.arpose.nav.FloorPlanView
+import com.blindvision.arpose.nav.MaskNavMap
 import com.blindvision.arpose.nav.NavLocation
 import com.blindvision.arpose.pose.ArCorePoseProvider
 import com.blindvision.arpose.pose.PoseProvider
 import com.blindvision.arpose.pose.SimulatedPoseProvider
 import com.blindvision.arpose.pose.WorldPoseConsumer
+import com.blindvision.planning.AStarGridPlanner
+import com.blindvision.planning.Reachability
 import com.google.ar.core.ArCoreApk
 import com.google.ar.core.exceptions.UnavailableException
 
@@ -53,6 +56,42 @@ class MainActivity : Activity() {
         consumer = WorldPoseConsumer { readout ->
             runOnUiThread { render(readout) }
         }
+
+        planDemoRoute()
+    }
+
+    /**
+     * Load the occupancy mask, run A* from the VIO origin to the farthest reachable
+     * cell, and draw the resulting route over the plan. Done off the UI thread because
+     * parsing the ~1.6 MB mask and planning over a 1448x1086 grid is heavy.
+     */
+    private fun planDemoRoute() {
+        Thread {
+            try {
+                val map = MaskNavMap.fromRawResource(applicationContext, R.raw.floor_plan_mask_labels)
+                val start = map.snapToTraversable(map.originPos)
+                val (goal, hops) = Reachability.farthestReachable(map.floor, start)
+                val cells = AStarGridPlanner().plan(map.floor, start, goal) ?: emptyList()
+
+                // Decimate to keep per-frame path drawing light.
+                val step = maxOf(1, cells.size / 400)
+                val route = ArrayList<NavLocation>(cells.size / step + 1)
+                var i = 0
+                while (i < cells.size) { route.add(map.cellToLocation(cells[i])); i += step }
+                if (cells.isNotEmpty()) route.add(map.cellToLocation(cells.last()))
+
+                Log.i(
+                    WorldPoseConsumer.LOG_TAG,
+                    "Planned route: ${cells.size} cells (reach=$hops) start=$start goal=$goal"
+                )
+                runOnUiThread {
+                    floorPlanView.applyMaskCalibration(map)
+                    floorPlanView.setPath(route)
+                }
+            } catch (e: Exception) {
+                Log.e(WorldPoseConsumer.LOG_TAG, "Route planning failed", e)
+            }
+        }.start()
     }
 
     override fun onResume() {

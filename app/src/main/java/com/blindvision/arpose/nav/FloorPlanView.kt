@@ -95,9 +95,10 @@ class FloorPlanView @JvmOverloads constructor(
     private val scratchPath = Path()
 
     init {
-        // Default to the bundled floor plan so the view is useful out of the box.
+        // Default to the room-labelled plan, which is pixel-aligned 1:1 with the
+        // occupancy mask so the planned path overlays exactly.
         setFloorPlan(
-            BitmapFactory.decodeResource(resources, R.drawable.floor_plan)
+            BitmapFactory.decodeResource(resources, R.drawable.floor_plan_with_rooms)
         )
     }
 
@@ -114,6 +115,16 @@ class FloorPlanView @JvmOverloads constructor(
     /** Override the metres->pixels calibration (e.g. once a surveyed map exists). */
     fun setCalibration(calibration: PlanCalibration) {
         this.calibration = calibration
+        invalidate()
+    }
+
+    /**
+     * Adopt the calibration implied by [map] for the currently displayed bitmap, so the
+     * planned path (and the live dot) line up exactly with this floor plan.
+     */
+    fun applyMaskCalibration(map: MaskNavMap) {
+        val bmp = bitmap ?: return
+        calibration = map.calibrationFor(bmp.width, bmp.height)
         invalidate()
     }
 
