@@ -1,54 +1,80 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- The GLSurfaceView sits behind the readout. ARCore needs a GL surface to
-     drive frames; on the emulator (simulated provider) it stays blank. -->
+<!-- FloorPlanView fills the screen. ARCore needs a real, continuously rendering
+     GL surface to stay in TRACKING; it is kept off-screen (same size, negative
+     margins) so nothing visible covers the map. -->
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent">
 
-    <android.opengl.GLSurfaceView
-        android:id="@+id/gl_surface"
+    <com.blindvision.arpose.nav.FloorPlanView
+        android:id="@+id/floor_plan"
         android:layout_width="match_parent"
         android:layout_height="match_parent" />
 
-    <ScrollView
+    <com.blindvision.arpose.gl.Map3DView
+        android:id="@+id/map_3d"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:background="#CC000000"
-        android:padding="20dp">
+        android:visibility="gone" />
 
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="vertical">
+    <android.opengl.GLSurfaceView
+        android:id="@+id/gl_surface"
+        android:layout_width="120dp"
+        android:layout_height="160dp"
+        android:layout_gravity="top|end"
+        android:layout_marginTop="-180dp"
+        android:layout_marginEnd="-132dp" />
 
-            <TextView
-                android:id="@+id/status_text"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:textColor="#FF80FF80"
-                android:textSize="16sp"
-                android:fontFamily="monospace"
-                android:text="Initializing…" />
+    <TextView
+        android:id="@+id/loading_text"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center"
+        android:background="#CC101418"
+        android:padding="16dp"
+        android:text="Loading map…"
+        android:textColor="#FFFFFFFF"
+        android:textSize="15sp"
+        android:fontFamily="sans-serif-medium" />
 
-            <TextView
-                android:id="@+id/pose_text"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="16dp"
-                android:textColor="#FFFFFFFF"
-                android:textSize="15sp"
-                android:fontFamily="monospace"
-                android:text="" />
+    <ImageButton
+        android:id="@+id/view_mode_button"
+        android:layout_width="48dp"
+        android:layout_height="48dp"
+        android:layout_gravity="bottom|end"
+        android:layout_marginEnd="16dp"
+        android:layout_marginBottom="168dp"
+        android:background="@drawable/recenter_button_bg"
+        android:contentDescription="Switch between 2.5D and 3D map"
+        android:elevation="6dp"
+        android:padding="12dp"
+        android:scaleType="centerInside"
+        android:src="@drawable/ic_view_3d" />
 
-            <TextView
-                android:id="@+id/derived_text"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="16dp"
-                android:textColor="#FFFFD080"
-                android:textSize="15sp"
-                android:fontFamily="monospace"
-                android:text="" />
-        </LinearLayout>
-    </ScrollView>
+    <ImageButton
+        android:id="@+id/recenter_button"
+        android:layout_width="48dp"
+        android:layout_height="48dp"
+        android:layout_gravity="bottom|end"
+        android:layout_marginEnd="16dp"
+        android:layout_marginBottom="112dp"
+        android:background="@drawable/recenter_button_bg"
+        android:contentDescription="Recenter on your location"
+        android:elevation="6dp"
+        android:padding="12dp"
+        android:scaleType="centerInside"
+        android:src="@drawable/ic_my_location" />
+
+    <TextView
+        android:id="@+id/pose_text"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom|start"
+        android:layout_margin="16dp"
+        android:background="#CC101418"
+        android:padding="12dp"
+        android:textColor="#FFFFFFFF"
+        android:textSize="13sp"
+        android:fontFamily="monospace"
+        android:text="" />
 </FrameLayout>

@@ -1,6 +1,7 @@
 package com.blindvision.arpose.pose
 
 import android.app.Activity
+import android.graphics.PixelFormat
 import android.opengl.GLES11Ext
 import android.opengl.GLES30
 import android.opengl.GLSurfaceView
@@ -54,9 +55,16 @@ class ArCorePoseProvider(
         s.resume()
         session = s
 
+        // Keep the surface full-size (ARCore needs a real, continuously rendering
+        // surface to stay in TRACKING) but transparent, so the floor-plan view
+        // behind it remains visible. On some devices a full-screen SurfaceView is
+        // composited above the window; a translucent media-overlay surface that we
+        // clear to alpha 0 lets the UI show through regardless of z-order.
         glSurfaceView.preserveEGLContextOnPause = true
         glSurfaceView.setEGLContextClientVersion(3)
         glSurfaceView.setEGLConfigChooser(8, 8, 8, 8, 16, 0)
+        glSurfaceView.holder.setFormat(PixelFormat.TRANSLUCENT)
+        glSurfaceView.setZOrderMediaOverlay(true)
         glSurfaceView.setRenderer(this)
         glSurfaceView.renderMode = GLSurfaceView.RENDERMODE_CONTINUOUSLY
         glSurfaceView.onResume()
@@ -98,6 +106,8 @@ class ArCorePoseProvider(
 
     override fun onDrawFrame(gl: GL10?) {
         val s = session ?: return
+        // Clear to fully transparent so the floor plan behind shows through.
+        GLES30.glClearColor(0f, 0f, 0f, 0f)
         GLES30.glClear(GLES30.GL_COLOR_BUFFER_BIT or GLES30.GL_DEPTH_BUFFER_BIT)
 
         if (viewportChanged) {
