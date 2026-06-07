@@ -8,3 +8,6 @@
 app/build/
 .externalNativeBuild/
 .cxx/
+
+# Large input data (floor-plan masks / generated CSVs)
+/data/
