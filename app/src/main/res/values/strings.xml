@@ -9,4 +9,8 @@
     <string name="search_no_api_key">Gemini API key is not configured.</string>
     <string name="destination_prompt">Search for a destination\nto begin navigation</string>
     <string name="recenter_desc">Center map on user</string>
+    <string name="mic_button_desc">Voice input</string>
+    <string name="mic_listening">Listening…</string>
+    <string name="mic_error">Could not hear you. Try again.</string>
+    <string name="mic_permission_denied">Microphone permission denied.</string>
 </resources>
