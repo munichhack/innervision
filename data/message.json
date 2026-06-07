@@ -1,0 +1,104 @@
+{
+  "image_size": {
+    "width": 1448,
+    "height": 1086
+  },
+  "coordinate_system": "pixel coordinates, origin at top-left, x to the right, y downward",
+  "items": [
+    {
+      "id": "0003",
+      "type": "room",
+      "polygon": [[116, 35], [468, 35], [468, 476], [116, 476]]
+    },
+    {
+      "id": "0002",
+      "type": "room",
+      "polygon": [[117, 487], [468, 487], [468, 632], [117, 632]]
+    },
+    {
+      "id": "0001",
+      "type": "room",
+      "polygon": [[116, 720], [468, 720], [468, 968], [116, 968]]
+    },
+    {
+      "id": "0004",
+      "type": "room",
+      "polygon": [[488, 34], [1273, 34], [1273, 345], [488, 345]]
+    },
+    {
+      "id": "0031",
+      "type": "room",
+      "polygon": [[918, 362], [1065, 362], [1065, 476], [918, 476]]
+    },
+    {
+      "id": "0032",
+      "type": "room",
+      "polygon": [[921, 484], [1059, 484], [1059, 597], [921, 597]]
+    },
+    {
+      "id": "0033",
+      "type": "room",
+      "polygon": [[970, 609], [1062, 609], [1062, 677], [970, 677]]
+    },
+    {
+      "id": "0034",
+      "type": "room",
+      "polygon": [[922, 681], [1061, 681], [1061, 748], [922, 748]]
+    },
+    {
+      "id": "0035",
+      "type": "room",
+      "polygon": [[993, 758], [1069, 758], [1069, 846], [993, 846]]
+    },
+    {
+      "id": "elevator",
+      "type": "notable_location",
+      "polygon": [[918, 780], [965, 780], [965, 824], [918, 824]]
+    },
+    {
+      "id": "staircase_lower",
+      "type": "notable_location",
+      "polygon": [[749, 898], [798, 898], [798, 919], [749, 919]]
+    },
+    {
+      "id": "staircase_upper",
+      "type": "notable_location",
+      "polygon": [[1163, 546], [1246, 546], [1246, 595], [1163, 595]]
+    },
+    {
+      "id": "0038_top",
+      "type": "room",
+      "polygon": [[1142, 613], [1283, 613], [1283, 666], [1142, 666]]
+    },
+    {
+      "id": "0037",
+      "type": "room",
+      "polygon": [[1138, 671], [1281, 671], [1281, 725], [1138, 725]]
+    },
+    {
+      "id": "0038_bottom",
+      "type": "room",
+      "polygon": [[1135, 742], [1210, 742], [1210, 791], [1135, 791]]
+    },
+    {
+      "id": "0039",
+      "type": "room",
+      "polygon": [[1221, 741], [1299, 741], [1299, 791], [1221, 791]]
+    },
+    {
+      "id": "0040",
+      "type": "room",
+      "polygon": [[1137, 800], [1284, 800], [1284, 915], [1137, 915]]
+    },
+    {
+      "id": "0042",
+      "type": "room",
+      "polygon": [[1131, 928], [1288, 928], [1288, 1054], [1131, 1054]]
+    }
+  ],
+  "notes": [
+    "All polygons are 4-point rectangles derived from the red bounding boxes in the annotated image.",
+    "The annotated image contains two separate boxes labeled 0038; they are stored as 0038_top and 0038_bottom to keep IDs unique.",
+    "Labels 0036 and 0041 do not appear in the provided annotated image and are therefore not included."
+  ]
+}
