@@ -91,10 +91,10 @@ class MaskNavMap private constructor(
          * Only affects how far the live dot travels per metre; the planned path overlay
          * is exact regardless. ~0.035 m/cell => the 1448-cell width spans ~40 m.
          */
-        const val DEFAULT_METERS_PER_CELL = 0.035f
+        const val DEFAULT_METERS_PER_CELL = 0.033f
 
         /** Bottom-center door — demo route start and VIO entry point. */
-        val DEMO_START = GridPos(340, 206)
+        val DEMO_START = GridPos(200, 340)
 
         /** Centre of the large room at the top-left. */
         val DEMO_GOAL = GridPos(340, 206)
