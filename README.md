@@ -73,6 +73,24 @@ WorldPose: src=SIMULATED n=60 pos=[ 1.740, 0.057, 0.806]m quat=[0,0.410,0,0.912]
 
 To stop the emulator: `"$ADB" emu kill`.
 
+## Resolve a spoken destination
+
+`tools/DestinationResolver.kt` is a small Gemini-backed CLI that maps a user
+request to a floor-plan bounding box from `json_map/message.json`. It prints only
+`[minX,minY,maxX,maxY]` or `-1`, where `-1` means the request was not understood.
+
+```bash
+set -a; source .env; set +a
+kotlinc tools/DestinationResolver.kt -include-runtime -d /tmp/destination-resolver.jar
+
+java -jar /tmp/destination-resolver.jar "I want to get to room 31"
+java -jar /tmp/destination-resolver.jar --current 900,850 "nearest staircase"
+```
+
+The script reads `GEMINI_API_KEY` or `GOOGLE_API_KEY`; `GEMINI_MODEL` is optional
+and defaults to `gemini-2.5-flash-lite`. `--current X,Y` should use the same
+pixel coordinate system as `message.json`.
+
 ## Run on a physical Redmi Note 11 (real ARCore)
 
 ```bash
