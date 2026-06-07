@@ -12,6 +12,7 @@ import android.graphics.RectF
 import android.util.AttributeSet
 import android.view.View
 import com.blindvision.arpose.R
+import kotlin.math.atan2
 import kotlin.math.cos
 import kotlin.math.min
 import kotlin.math.sin
@@ -37,7 +38,12 @@ class FloorPlanView @JvmOverloads constructor(
     private val floorModel = FloorModel()
 
     private var userLocation: NavLocation? = null
+    // Heading is derived from the *direction of travel* (the change in plan
+    // position), not from device yaw — so the arrow always points where the dot
+    // is actually moving on screen. 0 rad points up (toward -planY on screen).
     private var userHeadingRad: Float = 0f
+    private var hasHeading = false
+    private var headingRefLocation: NavLocation? = null
     private var path: List<NavLocation> = emptyList()
 
     /** Floor currently shown on screen (defaults to the user's floor). */
@@ -117,13 +123,31 @@ class FloorPlanView @JvmOverloads constructor(
         invalidate()
     }
 
-    /** Update the user's current location and facing direction (radians, plan frame). */
-    fun setUserLocation(location: NavLocation, headingRad: Float = userHeadingRad) {
+    /**
+     * Update the user's current location. The travel-direction arrow is computed
+     * here from the displacement since the last significant move, so it points the
+     * way the dot is moving on the plan (independent of how the phone is held).
+     */
+    fun setUserLocation(location: NavLocation) {
+        val ref = headingRefLocation
+        if (ref == null) {
+            headingRefLocation = location
+        } else {
+            val dx = location.x - ref.x
+            val dy = location.y - ref.y
+            // Only update heading once the user has actually moved, to avoid the
+            // arrow spinning on VIO jitter while standing still.
+            if (dx * dx + dy * dy >= MOVE_EPS_SQ_METERS) {
+                // atan2(dx, dy): 0 -> +planY (screen up), +x -> screen right,
+                // matching the arrow geometry and the dot's on-screen motion.
+                userHeadingRad = atan2(dx, dy)
+                hasHeading = true
+                headingRefLocation = location
+            }
+        }
         userLocation = location
-        userHeadingRad = headingRad
-        val floor = floorModel.floorOf(location)
         // Follow the user's floor automatically.
-        displayedFloor = floor
+        displayedFloor = floorModel.floorOf(location)
         userFloorKnown = true
         invalidate()
     }
@@ -218,9 +242,9 @@ class FloorPlanView @JvmOverloads constructor(
         dotStrokePaint.alpha = alpha
         headingPaint.alpha = alpha
 
-        if (onThisFloor) {
+        if (onThisFloor && hasHeading) {
             canvas.drawCircle(cx, cy, 34f, dotHaloPaint)
-            // Heading arrow: 0 rad points up (north on the plan).
+            // Travel-direction arrow: 0 rad points up on the plan.
             val len = 46f
             val tipX = cx + len * sin(userHeadingRad)
             val tipY = cy - len * cos(userHeadingRad)
@@ -255,5 +279,10 @@ class FloorPlanView @JvmOverloads constructor(
         floor == 0 -> "G"
         floor > 0 -> "$floor"
         else -> "B${-floor}"
+    }
+
+    private companion object {
+        // Minimum travel (≈0.05 m) before the heading arrow re-orients.
+        const val MOVE_EPS_SQ_METERS = 0.0025f
     }
 }

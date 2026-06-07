@@ -156,8 +156,9 @@ class MainActivity : Activity() {
         // convention so the dot lands in the plane of the floor plan and the
         // height (ty) drives the floor index.
         val location = NavLocation.fromArCore(r.tx, r.ty, r.tz)
-        val headingRad = Math.toRadians(r.yawDeg.toDouble()).toFloat()
-        floorPlanView.setUserLocation(location, headingRad)
+        // The view derives the travel-direction arrow from movement itself; we no
+        // longer pass device yaw (which pointed opposite to the direction of travel).
+        floorPlanView.setUserLocation(location)
 
         poseText.text = buildString {
             append("floor ${floorPlanView.currentFloor()}  •  ${r.source}\n")
