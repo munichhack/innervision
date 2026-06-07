@@ -68,6 +68,17 @@
                 android:textSize="16sp" />
 
             <ImageButton
+                android:id="@+id/mic_button"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:layout_marginStart="8dp"
+                android:background="@drawable/recenter_button_bg"
+                android:contentDescription="@string/mic_button_desc"
+                android:padding="12dp"
+                android:scaleType="centerInside"
+                android:src="@android:drawable/ic_btn_speak_now" />
+
+            <ImageButton
                 android:id="@+id/search_button"
                 android:layout_width="48dp"
                 android:layout_height="48dp"

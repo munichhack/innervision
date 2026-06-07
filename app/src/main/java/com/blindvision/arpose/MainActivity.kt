@@ -2,12 +2,16 @@ package com.blindvision.arpose
 
 import android.Manifest
 import android.app.Activity
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.opengl.GLSurfaceView
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.speech.RecognitionListener
+import android.speech.RecognizerIntent
+import android.speech.SpeechRecognizer
 import android.util.Log
 import android.view.View
 import android.view.inputmethod.EditorInfo
@@ -46,6 +50,7 @@ class MainActivity : Activity() {
     private lateinit var loadingText: TextView
     private lateinit var searchInput: EditText
     private lateinit var searchButton: ImageButton
+    private lateinit var micButton: ImageButton
     private lateinit var destinationLabel: TextView
     private lateinit var searchStatus: TextView
     private lateinit var destinationPrompt: TextView
@@ -59,6 +64,9 @@ class MainActivity : Activity() {
     private var lastUserCell: GridPos? = null
     private var resolving = false
 
+    private var speechRecognizer: SpeechRecognizer? = null
+    private var listeningActive = false
+
     private val mainHandler = Handler(Looper.getMainLooper())
     private lateinit var consumer: WorldPoseConsumer
     private var provider: PoseProvider? = null
@@ -71,6 +79,7 @@ class MainActivity : Activity() {
         loadingText = findViewById(R.id.loading_text)
         searchInput = findViewById(R.id.search_input)
         searchButton = findViewById(R.id.search_button)
+        micButton = findViewById(R.id.mic_button)
         destinationLabel = findViewById(R.id.destination_label)
         searchStatus = findViewById(R.id.search_status)
         destinationPrompt = findViewById(R.id.destination_prompt)
@@ -87,6 +96,7 @@ class MainActivity : Activity() {
                 false
             }
         }
+        micButton.setOnClickListener { onMicClicked() }
         recenterButton.setOnClickListener { map3dView.recenterOnUser() }
 
         consumer = WorldPoseConsumer { readout ->
@@ -96,6 +106,79 @@ class MainActivity : Activity() {
         // Lock interaction until the user picks a destination.
         map3dView.interactionLocked = true
         loadMapOnly()
+    }
+
+    private fun onMicClicked() {
+        if (listeningActive) {
+            stopListening()
+            return
+        }
+        if (checkSelfPermission(Manifest.permission.RECORD_AUDIO)
+            != PackageManager.PERMISSION_GRANTED
+        ) {
+            requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), REQ_AUDIO)
+            return
+        }
+        startListening()
+    }
+
+    private fun startListening() {
+        if (!SpeechRecognizer.isRecognitionAvailable(this)) {
+            showSearchError(getString(R.string.mic_error))
+            return
+        }
+        val recognizer = SpeechRecognizer.createSpeechRecognizer(this)
+        speechRecognizer = recognizer
+        recognizer.setRecognitionListener(object : RecognitionListener {
+            override fun onReadyForSpeech(params: android.os.Bundle?) {
+                listeningActive = true
+                runOnUiThread {
+                    micButton.setImageResource(android.R.drawable.presence_audio_online)
+                    searchStatus.visibility = View.VISIBLE
+                    searchStatus.setTextColor(0xFF555555.toInt())
+                    searchStatus.text = getString(R.string.mic_listening)
+                }
+            }
+            override fun onResults(results: android.os.Bundle?) {
+                val matches = results
+                    ?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
+                val text = matches?.firstOrNull()?.trim() ?: ""
+                stopListening()
+                if (text.isNotEmpty()) {
+                    runOnUiThread {
+                        searchInput.setText(text)
+                        resolveAndPlan(text)
+                    }
+                } else {
+                    runOnUiThread { showSearchError(getString(R.string.mic_error)) }
+                }
+            }
+            override fun onError(error: Int) {
+                stopListening()
+                runOnUiThread { showSearchError(getString(R.string.mic_error)) }
+            }
+            override fun onBeginningOfSpeech() {}
+            override fun onBufferReceived(buffer: ByteArray?) {}
+            override fun onEndOfSpeech() {}
+            override fun onEvent(eventType: Int, params: android.os.Bundle?) {}
+            override fun onPartialResults(partialResults: android.os.Bundle?) {}
+            override fun onRmsChanged(rmsdB: Float) {}
+        })
+
+        val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+            putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
+        }
+        recognizer.startListening(intent)
+    }
+
+    private fun stopListening() {
+        listeningActive = false
+        speechRecognizer?.destroy()
+        speechRecognizer = null
+        runOnUiThread {
+            micButton.setImageResource(android.R.drawable.ic_btn_speak_now)
+        }
     }
 
     private fun submitSearch() {
@@ -304,10 +387,17 @@ class MainActivity : Activity() {
 
     override fun onPause() {
         super.onPause()
+        stopListening()
         map3dView.onPause()
         provider?.stop()
         provider = null
         started = false
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        speechRecognizer?.destroy()
+        speechRecognizer = null
     }
 
     /** Resolve the pose source and begin streaming, retrying transient states. */
@@ -377,13 +467,24 @@ class MainActivity : Activity() {
         grantResults: IntArray
     ) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-        if (requestCode == REQ_CAMERA) {
-            if (grantResults.isNotEmpty() &&
-                grantResults[0] == PackageManager.PERMISSION_GRANTED
-            ) {
-                maybeStart()
-            } else {
-                startSimulated("Camera permission denied.")
+        when (requestCode) {
+            REQ_CAMERA -> {
+                if (grantResults.isNotEmpty() &&
+                    grantResults[0] == PackageManager.PERMISSION_GRANTED
+                ) {
+                    maybeStart()
+                } else {
+                    startSimulated("Camera permission denied.")
+                }
+            }
+            REQ_AUDIO -> {
+                if (grantResults.isNotEmpty() &&
+                    grantResults[0] == PackageManager.PERMISSION_GRANTED
+                ) {
+                    startListening()
+                } else {
+                    showSearchError(getString(R.string.mic_permission_denied))
+                }
             }
         }
     }
@@ -399,5 +500,6 @@ class MainActivity : Activity() {
 
     private companion object {
         const val REQ_CAMERA = 1001
+        const val REQ_AUDIO = 1002
     }
 }
