@@ -254,7 +254,7 @@ class Map3DRenderer : GLSurfaceView.Renderer {
             Matrix.multiplyMM(mvp, 0, vp, 0, model, 0)
             GLES20.glUniformMatrix4fv(uMvp, 1, false, mvp, 0)
             GLES20.glUniform1f(uUseTex, 0f)
-            GLES20.glUniform4f(uColor, 1.0f, 0.596f, 0.0f, 1f) // #FF9800 orange
+            GLES20.glUniform4f(uColor, 0.898f, 0.224f, 0.208f, 1f) // #E53935 red
             drawBuffer(destMarkerBuf!!, destMarkerVertCount)
         }
 
@@ -266,7 +266,7 @@ class Map3DRenderer : GLSurfaceView.Renderer {
             Matrix.multiplyMM(mvp, 0, vp, 0, model, 0)
             GLES20.glUniformMatrix4fv(uMvp, 1, false, mvp, 0)
             GLES20.glUniform1f(uUseTex, 0f)
-            GLES20.glUniform4f(uColor, 0.898f, 0.224f, 0.208f, 1f) // #E53935
+            GLES20.glUniform4f(uColor, 0.678f, 0.847f, 0.902f, 1f) // #ADD8E6 light blue
             drawBuffer(markerBuf!!, markerVertCount)
         }
     }
