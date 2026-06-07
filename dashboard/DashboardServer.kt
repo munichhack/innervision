@@ -1,5 +1,6 @@
 package com.blindvision.planning.dashboard
 
+import com.blindvision.planning.AStarGridPlanner
 import com.blindvision.planning.BuildingGrid
 import com.blindvision.planning.BuildingLoader
 import com.blindvision.planning.BuildingPos
@@ -8,6 +9,7 @@ import com.blindvision.planning.MockBuilding
 import com.blindvision.planning.Reachability
 import com.blindvision.planning.Route
 import com.blindvision.planning.RoutePlanner
+import com.blindvision.planning.VoronoiGridPlanner
 import com.blindvision.planning.TransitionSegment
 import com.blindvision.planning.WalkSegment
 import com.sun.net.httpserver.HttpExchange
@@ -32,8 +34,26 @@ import java.nio.charset.StandardCharsets
  *   kotlinc app/src/main/java/com/blindvision/planning/ dashboard/DashboardServer.kt -include-runtime -d /tmp/dashboard.jar
  *   java -Xmx2g -cp /tmp/dashboard.jar com.blindvision.planning.dashboard.DashboardServerKt 8080
  */
-private class Registered(val id: String, val label: String, val grid: BuildingGrid) {
-    val planner = RoutePlanner(grid)
+private class Registered(
+    val id: String,
+    val label: String,
+    val grid: BuildingGrid,
+    val rooms: String? = null,
+) {
+    // One shared Voronoi planner so the skeleton is built once and reused by both
+    // routing and the /voronoi boundary endpoint.
+    val voronoi = VoronoiGridPlanner()
+
+    // Cache a RoutePlanner per grid-planner kind so the heavy per-floor fields
+    // (clearance / Voronoi skeleton) are built once and reused across requests.
+    private val planners = HashMap<String, RoutePlanner>()
+
+    fun planner(kind: String?): RoutePlanner = planners.getOrPut(kind ?: "astar") {
+        when (kind) {
+            "voronoi" -> RoutePlanner(grid, voronoi)
+            else -> RoutePlanner(grid, AStarGridPlanner())
+        }
+    }
 }
 
 private val buildings = LinkedHashMap<String, Registered>()
@@ -45,7 +65,10 @@ fun main(args: Array<String>) {
     val csv = File("data/floor_plan.csv")
     if (csv.exists()) {
         println("Loading ${csv.path} ...")
-        register("real", "Floor plan (data/floor_plan.csv)", loadCsvBuilding(csv))
+        val roomsFile = File("data/message.json")
+        val rooms = if (roomsFile.exists()) roomsFile.readText() else null
+        if (rooms != null) println("Loaded room assignments from ${roomsFile.path}")
+        register("real", "Floor plan (data/floor_plan.csv)", loadCsvBuilding(csv), rooms)
     } else {
         println("(data/floor_plan.csv not found — only the mock building is available)")
     }
@@ -55,6 +78,8 @@ fun main(args: Array<String>) {
     server.createContext("/building") { ex -> respond(ex, "application/json", buildingJson(pick(ex))) }
     server.createContext("/plan") { ex -> handlePlan(ex) }
     server.createContext("/sample") { ex -> handleSample(ex) }
+    server.createContext("/voronoi") { ex -> respond(ex, "application/json", voronoiJson(pick(ex))) }
+    server.createContext("/rooms") { ex -> respond(ex, "application/json", pick(ex).rooms ?: "{\"items\":[]}") }
     server.createContext("/") { ex -> respond(ex, "text/html; charset=utf-8", INDEX_HTML) }
     server.executor = null
     server.start()
@@ -62,8 +87,8 @@ fun main(args: Array<String>) {
     println("(Ctrl+C to stop)")
 }
 
-private fun register(id: String, label: String, grid: BuildingGrid) {
-    buildings[id] = Registered(id, label, grid)
+private fun register(id: String, label: String, grid: BuildingGrid, rooms: String? = null) {
+    buildings[id] = Registered(id, label, grid, rooms)
 }
 
 private fun loadCsvBuilding(file: File): BuildingGrid {
@@ -92,7 +117,7 @@ private fun handlePlan(ex: HttpExchange) {
         respond(ex, "application/json", "{\"ok\":false,\"error\":\"missing params\"}")
         return
     }
-    val route = b.planner.plan(BuildingPos(sf, sx, sy), BuildingPos(tf, tx, ty))
+    val route = b.planner(q["planner"]).plan(BuildingPos(sf, sx, sy), BuildingPos(tf, tx, ty))
     respond(ex, "application/json", planJson(route, null, null))
 }
 
@@ -102,7 +127,8 @@ private fun handleSample(ex: HttpExchange) {
     val start = Reachability.firstWalkable(floor)
     if (start == null) { respond(ex, "application/json", "{\"ok\":false}"); return }
     val (target, _) = Reachability.farthestReachable(floor, start)
-    val route = b.planner.plan(BuildingPos(0, start.x, start.y), BuildingPos(0, target.x, target.y))
+    val route = b.planner(query(ex)["planner"])
+        .plan(BuildingPos(0, start.x, start.y), BuildingPos(0, target.x, target.y))
     respond(ex, "application/json", planJson(route, BuildingPos(0, start.x, start.y), BuildingPos(0, target.x, target.y)))
 }
 
@@ -181,6 +207,21 @@ private fun planJson(route: Route?, start: BuildingPos?, target: BuildingPos?): 
     return sb.toString()
 }
 
+private fun voronoiJson(b: Registered): String {
+    val sb = StringBuilder("{\"floors\":[")
+    b.grid.floors.forEachIndexed { fi, f ->
+        if (fi > 0) sb.append(",")
+        sb.append("{\"index\":").append(f.index).append(",\"cells\":[")
+        b.voronoi.voronoiCells(f).forEachIndexed { i, p ->
+            if (i > 0) sb.append(",")
+            sb.append("[").append(p.x).append(",").append(p.y).append("]")
+        }
+        sb.append("]}")
+    }
+    sb.append("]}")
+    return sb.toString()
+}
+
 // --- http helpers -----------------------------------------------------------
 
 private fun respond(ex: HttpExchange, contentType: String, body: String) {
@@ -228,6 +269,12 @@ private val INDEX_HTML = """
 <header><h1>BlindVision &middot; Multi-floor Path Planner</h1></header>
 <div class="controls">
   <div class="grp"><label>Building</label><select id="building" onchange="onBuildingChange()"></select></div>
+  <div class="grp"><label>Planner</label><select id="planner" onchange="onPlannerChange()">
+    <option value="astar">A* (clearance + smoothing)</option>
+    <option value="voronoi">Voronoi (medial axis)</option>
+  </select></div>
+  <div class="grp"><label>Overlay</label><label style="font-size:13px;display:flex;align-items:center;gap:6px;padding:6px 0">
+    <input type="checkbox" id="showrooms" checked onchange="redraw()" style="width:auto"> rooms</label></div>
   <div class="grp"><label>Start (floor, x, y)</label>
     <div class="row"><input id="sf" placeholder="f"><input id="sx" placeholder="x"><input id="sy" placeholder="y"></div></div>
   <div class="grp"><label>Target (floor, x, y)</label>
@@ -245,14 +292,65 @@ private val INDEX_HTML = """
   <span><i class="sw" style="background:#b07cff"></i>ride</span>
   <span><i class="sw" style="background:#2ecc71"></i>start</span>
   <span><i class="sw" style="background:#e5484d"></i>target</span>
+  <span><i class="sw" style="background:#5ac8eb"></i>Voronoi boundary</span>
+  <span><i class="sw" style="background:#ffe24d"></i>room</span>
+  <span><i class="sw" style="background:#ffb020"></i>elevator / stairs</span>
 </div>
 <div id="floors"></div>
 <script>
 var CS=26, building=null, segments=null, clickTarget=false, autoSampleDone=false;
 var COL={wall:[43,52,64], portal:[106,169,255], walk:[232,237,242]};
+var skeletonCache={}, roomsCache={};
 function el(id){return document.getElementById(id);}
 function val(id){var v=parseInt(el(id).value);return isNaN(v)?null:v;}
 function curId(){return el('building').value;}
+function plannerId(){return el('planner').value;}
+function onPlannerChange(){
+  var c=[val('sf'),val('sx'),val('sy'),val('tf'),val('tx'),val('ty')];
+  var hasRoute=c.every(function(v){return v!==null;});
+  if(plannerId()==='voronoi'){ ensureSkeleton(function(){ if(hasRoute) plan(); else redraw(); }); }
+  else { if(hasRoute) plan(); else redraw(); }
+}
+function skeletonFor(idx){ var m=skeletonCache[curId()]; return m?m[idx]:null; }
+function ensureSkeleton(cb){
+  var id=curId();
+  if(skeletonCache[id]){ cb(); return; }
+  el('status').textContent='Building Voronoi boundaries...';
+  fetch('/voronoi?id='+encodeURIComponent(id)).then(function(r){return r.json();}).then(function(res){
+    var m={}; res.floors.forEach(function(fl){ m[fl.index]=fl.cells; }); skeletonCache[id]=m; cb();
+  });
+}
+function drawSkeleton(f,cv){
+  if(plannerId()!=='voronoi'||!cv) return;
+  var cells=skeletonFor(f.index); if(!cells) return;
+  var g=cv.getContext('2d');
+  if(CS===1){ g.fillStyle='rgba(90,200,235,0.65)'; for(var i=0;i<cells.length;i++){ g.fillRect(cells[i][0],cells[i][1],1,1); } }
+  else { g.fillStyle='rgba(90,200,235,0.5)'; for(var i=0;i<cells.length;i++){ g.fillRect(cells[i][0]*CS+CS*0.3,cells[i][1]*CS+CS*0.3,Math.max(2,CS*0.4),Math.max(2,CS*0.4)); } }
+}
+function roomsFor(idx){ return idx===0 ? (roomsCache[curId()]||null) : null; }
+function ensureRooms(cb){
+  var id=curId();
+  if(roomsCache[id]){ cb(); return; }
+  fetch('/rooms?id='+encodeURIComponent(id)).then(function(r){return r.json();}).then(function(res){
+    roomsCache[id]=res.items||[]; cb();
+  });
+}
+function drawRooms(f,cv){
+  if(!el('showrooms').checked||!cv) return;
+  var items=roomsFor(f.index); if(!items||!items.length) return;
+  var g=cv.getContext('2d');
+  items.forEach(function(it){
+    var xs=it.polygon.map(function(p){return p[0];}), ys=it.polygon.map(function(p){return p[1];});
+    var x0=Math.min.apply(null,xs)*CS, y0=Math.min.apply(null,ys)*CS;
+    var x1=Math.max.apply(null,xs)*CS, y1=Math.max.apply(null,ys)*CS;
+    var notable=it.type!=='room';
+    if(notable){ g.fillStyle='rgba(255,176,32,0.22)'; g.fillRect(x0,y0,x1-x0,y1-y0); }
+    g.lineWidth=Math.max(1,CS); g.strokeStyle=notable?'#ffb020':'#ffe24d';
+    g.strokeRect(x0,y0,x1-x0,y1-y0);
+    g.fillStyle=notable?'#ffb020':'#ffe24d'; g.font='bold 12px system-ui'; g.textAlign='left';
+    g.fillText(it.id, x0+4, y0+14);
+  });
+}
 
 fetch('/buildings').then(function(r){return r.json();}).then(function(list){
   var sel=el('building'); sel.innerHTML='';
@@ -261,6 +359,8 @@ fetch('/buildings').then(function(r){return r.json();}).then(function(list){
     o.textContent=b.label+' ['+b.width+'x'+b.height+', '+b.floors+' floor(s)]';
     sel.appendChild(o);
   });
+  var qp=new URLSearchParams(window.location.search);
+  if(qp.get('planner')) el('planner').value=qp.get('planner');
   if(list.length){ sel.value=list[list.length-1].id; loadBuilding(true); }
 });
 
@@ -272,7 +372,10 @@ function loadBuilding(autoSample){
     var maxW=0; b.floors.forEach(function(f){ if(f.width>maxW) maxW=f.width; });
     CS=Math.max(1, Math.min(26, Math.floor(720/maxW)));
     renderFloors();
-    if(autoSample && !autoSampleDone){ autoSampleDone=true; runSample(); }
+    ensureRooms(function(){
+      var after=function(){ if(autoSample && !autoSampleDone){ autoSampleDone=true; runSample(); } };
+      if(plannerId()==='voronoi'){ ensureSkeleton(function(){ redraw(); after(); }); } else { redraw(); after(); }
+    });
   });
 }
 
@@ -285,7 +388,7 @@ function renderFloors(){
     cv.width=f.width*CS; cv.height=f.height*CS; cv.dataset.floor=f.index;
     cv.addEventListener('click', function(ev){onCellClick(ev,f);});
     wrap.appendChild(h); wrap.appendChild(cv); host.appendChild(wrap);
-    drawFloor(f,cv);
+    drawFloor(f,cv); drawSkeleton(f,cv); drawRooms(f,cv);
   });
   if(segments) drawOverlay();
 }
@@ -338,7 +441,7 @@ function drawMarker(f,x,y,color){
   g.fillStyle=color; g.beginPath(); g.arc(cx,cy,Math.max(5,CS*0.30),0,7); g.fill();
   g.strokeStyle='#0d1117'; g.lineWidth=2; g.stroke();
 }
-function redraw(){ building.floors.forEach(function(f){ drawFloor(f,floorCanvas(f.index)); }); drawOverlay(); }
+function redraw(){ building.floors.forEach(function(f){ var cv=floorCanvas(f.index); drawFloor(f,cv); drawSkeleton(f,cv); drawRooms(f,cv); }); drawOverlay(); }
 function onCellClick(ev,f){
   var rect=ev.target.getBoundingClientRect();
   var x=Math.floor((ev.clientX-rect.left)/CS), y=Math.floor((ev.clientY-rect.top)/CS);
@@ -350,13 +453,13 @@ function onCellClick(ev,f){
 function plan(){
   var sf=val('sf'),sx=val('sx'),sy=val('sy'),tf=val('tf'),tx=val('tx'),ty=val('ty');
   if([sf,sx,sy,tf,tx,ty].some(function(v){return v===null;})){ el('status').textContent='Enter all six start/target coordinates.'; return; }
-  var qs='/plan?id='+encodeURIComponent(curId())+'&sf='+sf+'&sx='+sx+'&sy='+sy+'&tf='+tf+'&tx='+tx+'&ty='+ty;
+  var qs='/plan?id='+encodeURIComponent(curId())+'&planner='+plannerId()+'&sf='+sf+'&sx='+sx+'&sy='+sy+'&tf='+tf+'&tx='+tx+'&ty='+ty;
   el('status').textContent='Planning...';
   fetch(qs).then(function(r){return r.json();}).then(function(res){ applyResult(res); });
 }
 function runSample(){
   el('status').textContent='Running sample test...';
-  fetch('/sample?id='+encodeURIComponent(curId())).then(function(r){return r.json();}).then(function(res){
+  fetch('/sample?id='+encodeURIComponent(curId())+'&planner='+plannerId()).then(function(r){return r.json();}).then(function(res){
     if(res.ok && res.start){ el('sf').value=res.start.f; el('sx').value=res.start.x; el('sy').value=res.start.y;
       el('tf').value=res.target.f; el('tx').value=res.target.x; el('ty').value=res.target.y; }
     applyResult(res, true);
