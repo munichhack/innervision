@@ -61,6 +61,8 @@ class Map3DRenderer : GLSurfaceView.Renderer {
     private var aUv = 0
     private var uMvp = 0
     private var uLightDir = 0
+    private var uEyePos = 0
+    private var uTranslate = 0
     private var uUseTex = 0
     private var uColor = 0
     private var uSampler = 0
@@ -152,6 +154,8 @@ class Map3DRenderer : GLSurfaceView.Renderer {
         aUv = GLES20.glGetAttribLocation(program, "aUv")
         uMvp = GLES20.glGetUniformLocation(program, "uMvp")
         uLightDir = GLES20.glGetUniformLocation(program, "uLightDir")
+        uEyePos = GLES20.glGetUniformLocation(program, "uEyePos")
+        uTranslate = GLES20.glGetUniformLocation(program, "uTranslate")
         uUseTex = GLES20.glGetUniformLocation(program, "uUseTex")
         uColor = GLES20.glGetUniformLocation(program, "uColor")
         uSampler = GLES20.glGetUniformLocation(program, "uSampler")
@@ -185,10 +189,13 @@ class Map3DRenderer : GLSurfaceView.Renderer {
         Matrix.setLookAtM(view, 0, ex, ey, ez, cx, 0f, cz, 0f, 1f, 0f)
         Matrix.multiplyMM(vp, 0, proj, 0, view, 0)
 
-        // Floor (identity model).
+        GLES20.glUniform3f(uEyePos, ex, ey, ez)
+
+        // Flat geometry (floor, walls, route) — identity model, translate = (0,0,0).
         Matrix.setIdentityM(model, 0)
         Matrix.multiplyMM(mvp, 0, vp, 0, model, 0)
         GLES20.glUniformMatrix4fv(uMvp, 1, false, mvp, 0)
+        GLES20.glUniform3f(uTranslate, 0f, 0f, 0f)
 
         floorBuf?.let { buf ->
             GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
@@ -222,10 +229,12 @@ class Map3DRenderer : GLSurfaceView.Renderer {
             GLES20.glUniform1f(uUseTex, 0f)
             GLES20.glUniform4f(uColor, 0.369f, 0.918f, 0.831f, 1f) // #5EEAD4
             for ((col, row) in stairsPositions) {
+                val tx = wx(col); val tz = wz(row)
                 Matrix.setIdentityM(model, 0)
-                Matrix.translateM(model, 0, wx(col), 0f, wz(row))
+                Matrix.translateM(model, 0, tx, 0f, tz)
                 Matrix.multiplyMM(mvp, 0, vp, 0, model, 0)
                 GLES20.glUniformMatrix4fv(uMvp, 1, false, mvp, 0)
+                GLES20.glUniform3f(uTranslate, tx, 0f, tz)
                 drawBuffer(buf, stairsIconVertCount)
             }
         }
@@ -235,20 +244,24 @@ class Map3DRenderer : GLSurfaceView.Renderer {
             GLES20.glUniform1f(uUseTex, 0f)
             GLES20.glUniform4f(uColor, 0.769f, 0.710f, 0.992f, 1f) // #C4B5FD
             for ((col, row) in elevatorPositions) {
+                val tx = wx(col); val tz = wz(row)
                 Matrix.setIdentityM(model, 0)
-                Matrix.translateM(model, 0, wx(col), 0f, wz(row))
+                Matrix.translateM(model, 0, tx, 0f, tz)
                 Matrix.multiplyMM(mvp, 0, vp, 0, model, 0)
                 GLES20.glUniformMatrix4fv(uMvp, 1, false, mvp, 0)
+                GLES20.glUniform3f(uTranslate, tx, 0f, tz)
                 drawBuffer(buf, elevatorIconVertCount)
             }
         }
 
         // Destination marker (pin).
         if (destCol >= 0f && destMarkerBuf != null) {
+            val tx = wx(destCol); val tz = wz(destRow)
             Matrix.setIdentityM(model, 0)
-            Matrix.translateM(model, 0, wx(destCol), 0f, wz(destRow))
+            Matrix.translateM(model, 0, tx, 0f, tz)
             Matrix.multiplyMM(mvp, 0, vp, 0, model, 0)
             GLES20.glUniformMatrix4fv(uMvp, 1, false, mvp, 0)
+            GLES20.glUniform3f(uTranslate, tx, 0f, tz)
             GLES20.glUniform1f(uUseTex, 0f)
             GLES20.glUniform4f(uColor, 1.0f, 0.596f, 0.0f, 1f) // #FF9800 orange
             drawBuffer(destMarkerBuf!!, destMarkerVertCount)
@@ -256,11 +269,13 @@ class Map3DRenderer : GLSurfaceView.Renderer {
 
         // User marker.
         if (userCol >= 0f && markerBuf != null) {
+            val tx = wx(userCol); val tz = wz(userRow)
             Matrix.setIdentityM(model, 0)
-            Matrix.translateM(model, 0, wx(userCol), 0f, wz(userRow))
+            Matrix.translateM(model, 0, tx, 0f, tz)
             Matrix.rotateM(model, 0, -userHeading * 180f / PI.toFloat(), 0f, 1f, 0f)
             Matrix.multiplyMM(mvp, 0, vp, 0, model, 0)
             GLES20.glUniformMatrix4fv(uMvp, 1, false, mvp, 0)
+            GLES20.glUniform3f(uTranslate, tx, 0f, tz)
             GLES20.glUniform1f(uUseTex, 0f)
             GLES20.glUniform4f(uColor, 0.898f, 0.224f, 0.208f, 1f) // #E53935
             drawBuffer(markerBuf!!, markerVertCount)
@@ -555,32 +570,67 @@ class Map3DRenderer : GLSurfaceView.Renderer {
     private companion object {
         const val VERTEX_SHADER = """
             uniform mat4 uMvp;
+            uniform vec3 uTranslate;
             attribute vec4 aPos;
             attribute vec3 aNormal;
             attribute vec2 aUv;
             varying vec3 vNormal;
             varying vec2 vUv;
+            varying vec3 vWorldPos;
             void main() {
-                vNormal = aNormal;
-                vUv = aUv;
+                vNormal   = aNormal;
+                vUv       = aUv;
+                vWorldPos = aPos.xyz + uTranslate;
                 gl_Position = uMvp * aPos;
             }
         """
 
+        // Hemisphere ambient (sky/ground colour tint) + Lambertian diffuse +
+        // Phong specular on non-textured surfaces + exponential depth fog.
         const val FRAGMENT_SHADER = """
             precision mediump float;
-            uniform vec3 uLightDir;
+            uniform vec3  uLightDir;
+            uniform vec3  uEyePos;
             uniform float uUseTex;
-            uniform vec4 uColor;
+            uniform vec4  uColor;
             uniform sampler2D uSampler;
             varying vec3 vNormal;
             varying vec2 vUv;
+            varying vec3 vWorldPos;
+
             void main() {
-                float diff = max(dot(normalize(vNormal), normalize(uLightDir)), 0.0);
-                float light = 0.40 + 0.60 * diff;
+                vec3 N = normalize(vNormal);
+                vec3 L = normalize(uLightDir);
+                vec3 V = normalize(uEyePos - vWorldPos);
+
+                // Hemisphere ambient: blend between a warm ground tone and a cool
+                // sky tone based on how much the surface faces upward.
+                float hemi = 0.5 + 0.5 * dot(N, vec3(0.0, 1.0, 0.0));
+                vec3 skyCol    = vec3(0.52, 0.62, 0.78);
+                vec3 groundCol = vec3(0.32, 0.28, 0.22);
+                vec3 ambientCol = mix(groundCol, skyCol, hemi);
+
+                // Lambertian diffuse.
+                float diff = max(dot(N, L), 0.0);
+
+                // Phong specular — skip on the textured floor (already has baked detail).
+                vec3 R = reflect(-L, N);
+                float spec = pow(max(dot(R, V), 0.0), 48.0);
+                float specStr = (uUseTex > 0.5) ? 0.0 : 0.28;
+
                 vec4 base = (uUseTex > 0.5) ? texture2D(uSampler, vUv) : uColor;
                 if (base.a < 0.1) discard;
-                gl_FragColor = vec4(base.rgb * light, base.a);
+
+                vec3 lit = base.rgb * (ambientCol * 0.42 + vec3(0.62) * diff)
+                           + vec3(spec * specStr);
+
+                // Exponential fog — far geometry fades toward the sky colour.
+                float fogDist   = length(uEyePos - vWorldPos);
+                float fogFactor = clamp(exp(-fogDist * 0.18), 0.25, 1.0);
+                vec3  fogColor  = vec3(0.678, 0.847, 0.902);
+                lit = mix(fogColor, lit, fogFactor);
+
+                gl_FragColor = vec4(lit, base.a);
             }
         """
     }
