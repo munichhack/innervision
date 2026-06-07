@@ -37,6 +37,7 @@ class VoronoiGridPlanner(
     private val voronoiThreshold: Double = 3.0,
     private val smooth: Boolean = false,
     private val smoothMinClearance: Double = 1.5,
+    private val straighten: Boolean = true,
     private val fallback: GridPlanner = AStarGridPlanner(),
 ) : GridPlanner {
 
@@ -68,7 +69,8 @@ class VoronoiGridPlanner(
         val tail = entryGoal.path.asReversed()            // entryGoal .. goal
         for (k in 1 until tail.size) full.add(tail[k])
 
-        return if (smooth && full.size > 2) smoothPath(floor, f, full) else full
+        val routed = if (smooth && full.size > 2) smoothPath(floor, f, full) else full
+        return if (straighten && routed.size > 2) collisionStraighten(floor, routed) else routed
     }
 
     // --- field construction ---------------------------------------------------
@@ -238,6 +240,101 @@ class VoronoiGridPlanner(
             if (e2 < dx) { err += dx; y += sy }
         }
         return pts
+    }
+
+    // --- post-process: straighten artefact detours -----------------------------
+    //
+    // The skeleton route can thread through local junction vertices, producing
+    // small V-shaped detours where the corridor is actually straight. A collision-
+    // safe Douglas-Peucker pass removes points that lie within [eps] of the chord
+    // between kept points, so genuinely straight runs collapse to a line while real
+    // turns (deviation > eps) are preserved. Because every kept chord is verified
+    // collision-free and the simplified curve stays within [eps] of the original,
+    // it never jumps across open space to a distant boundary.
+
+    /**
+     * Iteratively skip a single vertex whenever the straight line across it stays
+     * collision-free, repeating until nothing changes. Unlike a deviation-threshold
+     * simplification (which keeps a big zig/zag just because it is "tall"), this
+     * removes a detour of any size as long as the shortcut is walkable — so the path
+     * straightens fully while walls still force every necessary corner.
+     */
+    private fun collisionStraighten(floor: Floor, path: List<GridPos>): List<GridPos> {
+        // 1. Reduce straight runs to their corner vertices (lossless: eps = 1 px).
+        val keep = BooleanArray(path.size)
+        keep[0] = true; keep[path.size - 1] = true
+        dpRecurse(floor, path, 0, path.size - 1, 1.0, keep)
+        val corners = ArrayList<GridPos>()
+        for (i in path.indices) if (keep[i]) corners.add(path[i])
+
+        // 2. Single-vertex skips, accepted only when collision-free, until a fixpoint.
+        var changed = true
+        while (changed) {
+            changed = false
+            var i = 1
+            while (i < corners.size - 1) {
+                if (segmentClear(floor, corners[i - 1], corners[i + 1])) {
+                    corners.removeAt(i); changed = true
+                } else {
+                    i++
+                }
+            }
+        }
+
+        // 3. Re-rasterize the simplified polyline to an adjacent-cell path.
+        val out = ArrayList<GridPos>()
+        out.add(corners[0])
+        for (k in 1 until corners.size) {
+            val line = bresenham(corners[k - 1], corners[k])
+            for (j in 1 until line.size) out.add(line[j])
+        }
+        return out
+    }
+
+    private fun dpRecurse(floor: Floor, path: List<GridPos>, lo: Int, hi: Int, eps: Double, keep: BooleanArray) {
+        if (hi <= lo + 1) return
+        val a = path[lo]; val b = path[hi]
+        var idx = -1; var maxD = -1.0
+        for (i in lo + 1 until hi) {
+            val d = perpDistance(path[i], a, b)
+            if (d > maxD) { maxD = d; idx = i }
+        }
+        // Split while the chord deviates too much OR would cut through a wall.
+        if (idx != -1 && (maxD > eps || !segmentClear(floor, a, b))) {
+            keep[idx] = true
+            dpRecurse(floor, path, lo, idx, eps, keep)
+            dpRecurse(floor, path, idx, hi, eps, keep)
+        }
+    }
+
+    private fun perpDistance(p: GridPos, a: GridPos, b: GridPos): Double {
+        val dx = (b.x - a.x).toDouble(); val dy = (b.y - a.y).toDouble()
+        val len2 = dx * dx + dy * dy
+        if (len2 == 0.0) {
+            val ex = (p.x - a.x).toDouble(); val ey = (p.y - a.y).toDouble()
+            return sqrt(ex * ex + ey * ey)
+        }
+        return abs(dy * (p.x - a.x) - dx * (p.y - a.y)) / sqrt(len2)
+    }
+
+    /** Straight line a->b stays walkable and never shaves a wall corner. */
+    private fun segmentClear(floor: Floor, a: GridPos, b: GridPos): Boolean {
+        var x = a.x; var y = a.y
+        val x1 = b.x; val y1 = b.y
+        val dx = abs(x1 - x); val dy = abs(y1 - y)
+        val sx = if (x < x1) 1 else -1
+        val sy = if (y < y1) 1 else -1
+        var err = dx - dy
+        while (true) {
+            if (!floor.traversable(x, y)) return false
+            if (x == x1 && y == y1) break
+            val e2 = 2 * err
+            var mx = false; var my = false
+            if (e2 > -dy) { err -= dy; x += sx; mx = true }
+            if (e2 < dx) { err += dx; y += sy; my = true }
+            if (mx && my && (!floor.traversable(x - sx, y) || !floor.traversable(x, y - sy))) return false
+        }
+        return true
     }
 
     private fun rebuild(prev: IntArray, startId: Int, endId: Int, h: Int): List<GridPos> {

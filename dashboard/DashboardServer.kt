@@ -479,14 +479,53 @@ function drawFloor(f,cv){
     for(var y3=0;y3<f.height;y3++){ for(var x3=0;x3<f.width;x3++){ if(f.rows[y3].charAt(x3)==='E') g.fillText('E',x3*CS+CS/2,y3*CS+CS/2+3); } }
   }
 }
+// Ramer-Douglas-Peucker corner extraction (grid coords).
+function rdp(pts, eps){
+  if(pts.length<3) return pts.slice();
+  var keep=new Array(pts.length); keep[0]=true; keep[pts.length-1]=true;
+  var stack=[[0,pts.length-1]];
+  while(stack.length){
+    var seg=stack.pop(), lo=seg[0], hi=seg[1], maxD=-1, idx=-1;
+    for(var i=lo+1;i<hi;i++){ var d=perpDist(pts[i],pts[lo],pts[hi]); if(d>maxD){maxD=d;idx=i;} }
+    if(idx>-1 && maxD>eps){ keep[idx]=true; stack.push([lo,idx]); stack.push([idx,hi]); }
+  }
+  var out=[]; for(var i=0;i<pts.length;i++) if(keep[i]) out.push(pts[i]); return out;
+}
+function perpDist(p,a,b){
+  var dx=b[0]-a[0], dy=b[1]-a[1], l2=dx*dx+dy*dy;
+  if(l2===0){ var ex=p[0]-a[0], ey=p[1]-a[1]; return Math.sqrt(ex*ex+ey*ey); }
+  return Math.abs(dy*(p[0]-a[0])-dx*(p[1]-a[1]))/Math.sqrt(l2);
+}
+// Stroke a polyline with fixed-radius rounded corners (a quadratic spline at each vertex).
+function strokeRounded(g, pts, R){
+  if(pts.length<2) return;
+  g.beginPath(); g.moveTo(pts[0][0],pts[0][1]);
+  if(pts.length===2){ g.lineTo(pts[1][0],pts[1][1]); g.stroke(); return; }
+  for(var i=1;i<pts.length-1;i++){
+    var A=pts[i-1], V=pts[i], B=pts[i+1];
+    var ax=V[0]-A[0], ay=V[1]-A[1], bx=B[0]-V[0], by=B[1]-V[1];
+    var la=Math.hypot(ax,ay), lb=Math.hypot(bx,by);
+    if(la===0||lb===0) continue;
+    var r=Math.min(R, la/2, lb/2);
+    g.lineTo(V[0]-ax/la*r, V[1]-ay/la*r);
+    g.quadraticCurveTo(V[0], V[1], V[0]+bx/lb*r, V[1]+by/lb*r);
+  }
+  g.lineTo(pts[pts.length-1][0], pts[pts.length-1][1]);
+  g.stroke();
+}
 function drawOverlay(){
   if(!segments) return;
   segments.forEach(function(s){
     if(s.type==='walk'){
       var cv=floorCanvas(s.floor); if(!cv) return; var g=cv.getContext('2d');
-      g.strokeStyle='#ff8c00'; g.lineWidth=Math.max(2,CS*0.6); g.lineJoin='round'; g.lineCap='round'; g.beginPath();
+      // faint raw path underneath
+      g.strokeStyle='rgba(255,140,0,0.28)'; g.lineWidth=Math.max(1,CS*0.4); g.lineJoin='round'; g.lineCap='round'; g.beginPath();
       s.path.forEach(function(p,i){ var cx=p[0]*CS+CS/2, cy=p[1]*CS+CS/2; if(i===0) g.moveTo(cx,cy); else g.lineTo(cx,cy); });
       g.stroke();
+      // smooth spline through the path's corner waypoints
+      var corners=rdp(s.path, 3).map(function(p){ return [p[0]*CS+CS/2, p[1]*CS+CS/2]; });
+      g.strokeStyle='#ff8c00'; g.lineWidth=Math.max(2,CS*0.7); g.lineJoin='round'; g.lineCap='round';
+      strokeRounded(g, corners, Math.max(16, CS*32));
     } else {
       var arrow = s.toFloor>s.fromFloor ? '^' : 'v';
       [s.fromFloor,s.toFloor].forEach(function(fl){
