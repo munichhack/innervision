@@ -11,3 +11,5 @@ app/build/
 
 # Project-local, self-contained toolchain (JDK + Android SDK). Safe to delete.
 /.toolchain/
+# Large input data (floor-plan masks / generated CSVs)
+/data/
