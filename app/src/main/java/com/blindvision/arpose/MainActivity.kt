@@ -48,7 +48,7 @@ class MainActivity : Activity() {
     private lateinit var searchButton: ImageButton
     private lateinit var destinationLabel: TextView
     private lateinit var searchStatus: TextView
-    private lateinit var destinationPrompt: TextView
+    private lateinit var destinationPromptOverlay: View
     private lateinit var recenterButton: ImageButton
     private lateinit var map3dView: Map3DView
     private lateinit var glSurfaceView: GLSurfaceView
@@ -73,7 +73,7 @@ class MainActivity : Activity() {
         searchButton = findViewById(R.id.search_button)
         destinationLabel = findViewById(R.id.destination_label)
         searchStatus = findViewById(R.id.search_status)
-        destinationPrompt = findViewById(R.id.destination_prompt)
+        destinationPromptOverlay = findViewById(R.id.destination_prompt_overlay)
         recenterButton = findViewById(R.id.recenter_button)
         map3dView = findViewById(R.id.map_3d)
         glSurfaceView = findViewById(R.id.gl_surface)
@@ -115,6 +115,8 @@ class MainActivity : Activity() {
      * The user is prompted to search for a destination.
      */
     private fun loadMapOnly() {
+        loadingText.visibility = View.VISIBLE
+        destinationPromptOverlay.visibility = View.GONE
         Thread {
             try {
                 val map = MaskNavMap.fromRawResource(applicationContext, R.raw.floor_plan_mask_labels)
@@ -134,6 +136,7 @@ class MainActivity : Activity() {
 
     private fun applyMapOnly(map: MaskNavMap, floor3d: Bitmap, wallRects: List<WallMesher.Rect>) {
         loadingText.visibility = View.GONE
+        destinationPromptOverlay.visibility = View.VISIBLE
         navMap = map
         map3dView.setData(floor3d, wallRects, emptyList(), map.cols, map.rows)
         val groups = MaskMapRenderer.portalGroups(map.floor)
@@ -155,6 +158,8 @@ class MainActivity : Activity() {
         }
 
         resolving = true
+        destinationPromptOverlay.visibility = View.GONE
+        map3dView.interactionLocked = false
         searchStatus.visibility = View.VISIBLE
         searchStatus.setTextColor(0xFF555555.toInt())
         searchStatus.text = getString(R.string.search_resolving)
@@ -281,7 +286,7 @@ class MainActivity : Activity() {
 
         if (label != null) {
             // Destination selected — reveal the map and unlock interaction.
-            destinationPrompt.visibility = View.GONE
+            destinationPromptOverlay.visibility = View.GONE
             map3dView.interactionLocked = false
             destinationLabel.visibility = View.VISIBLE
             destinationLabel.text = getString(R.string.destination_selected, label)

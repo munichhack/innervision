@@ -96,11 +96,12 @@ object MaskMapRenderer {
 
     // Clean flat floor for the 3D view (no wood grain).
     private val COLOR_FLOOR_3D = Color.parseColor("#FFFACD") // light yellow
-    private val COLOR_PORTAL_TILE = Color.parseColor("#FFF3A0")
 
     /**
-     * Floor texture for the OpenGL 3D view: a clean flat floor + subtle portal tiles,
+     * Floor texture for the OpenGL 3D view: a clean flat floor,
      * with the exterior left fully transparent so the GL clear colour shows through.
+     * Portal locations use the same base floor colour; stairs/elevator are drawn as
+     * 3D icons in [com.blindvision.arpose.gl.Map3DRenderer], not baked into the texture.
      * Walls and the route are real 3D geometry in the renderer, not baked here.
      */
     fun render3dFloorTexture(map: MaskNavMap): Bitmap {
@@ -112,8 +113,8 @@ object MaskMapRenderer {
         for (x in 0 until w) {
             for (y in 0 until h) {
                 when (floor.typeAt(x, y)) {
-                    CellType.WALKABLE -> pixels[pixelIndex(w, x, y)] = COLOR_FLOOR_3D
-                    CellType.PORTAL -> pixels[pixelIndex(w, x, y)] = COLOR_PORTAL_TILE
+                    CellType.WALKABLE, CellType.PORTAL ->
+                        pixels[pixelIndex(w, x, y)] = COLOR_FLOOR_3D
                     else -> Unit // leave transparent
                 }
             }
@@ -121,7 +122,6 @@ object MaskMapRenderer {
 
         val full = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
         full.setPixels(pixels, 0, w, 0, 0, w, h)
-        drawPortalMarkers(full, floor)
         return downscale(full)
     }
 

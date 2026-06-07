@@ -19,20 +19,35 @@
         android:layout_marginTop="-180dp"
         android:layout_marginEnd="-132dp" />
 
-    <!-- Prompt overlay: shown until the user picks a destination -->
-    <TextView
-        android:id="@+id/destination_prompt"
+    <!-- Prompt overlay: dimmed scrim + card until the user picks a destination -->
+    <FrameLayout
+        android:id="@+id/destination_prompt_overlay"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:gravity="center"
-        android:text="@string/destination_prompt"
-        android:textColor="#99FFFFFF"
-        android:textSize="22sp"
-        android:fontFamily="sans-serif-medium"
-        android:lineSpacingMultiplier="1.4"
         android:clickable="false"
         android:focusable="false"
-        android:visibility="visible" />
+        android:visibility="gone">
+
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:background="#66000000" />
+
+        <TextView
+            android:id="@+id/destination_prompt"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center"
+            android:background="@drawable/prompt_card_bg"
+            android:gravity="center"
+            android:paddingHorizontal="28dp"
+            android:paddingVertical="22dp"
+            android:text="@string/destination_prompt"
+            android:textColor="#FFFFFFFF"
+            android:textSize="20sp"
+            android:fontFamily="sans-serif-medium"
+            android:lineSpacingMultiplier="1.35" />
+    </FrameLayout>
 
     <LinearLayout
         android:id="@+id/search_panel"
@@ -126,5 +141,6 @@
         android:text="Loading map…"
         android:textColor="#FFFFFFFF"
         android:textSize="15sp"
-        android:fontFamily="sans-serif-medium" />
+        android:fontFamily="sans-serif-medium"
+        android:visibility="visible" />
 </FrameLayout>

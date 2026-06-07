@@ -52,6 +52,8 @@ class Map3DRenderer : GLSurfaceView.Renderer {
     @Volatile private var radius = 2.5f
     @Volatile private var cameraCenterX = 0f
     @Volatile private var cameraCenterZ = 0f
+    /** When true, the orbit centre tracks [setUser] updates (navigation mode). */
+    @Volatile private var followUser = false
 
     private var cell = 0.001f
 
@@ -108,6 +110,10 @@ class Map3DRenderer : GLSurfaceView.Renderer {
         userCol = col
         userRow = row
         userHeading = headingRad
+        if (followUser) {
+            cameraCenterX = wx(col)
+            cameraCenterZ = wz(row)
+        }
     }
 
     fun setDestination(col: Float, row: Float) {
@@ -128,16 +134,19 @@ class Map3DRenderer : GLSurfaceView.Renderer {
 
     fun recenterOnUser() {
         if (userCol < 0f) return
+        followUser = true
         cameraCenterX = wx(userCol)
         cameraCenterZ = wz(userRow)
     }
 
     fun orbitBy(dAzimuth: Float, dElevation: Float) {
+        followUser = false
         azimuth += dAzimuth
         elevation = (elevation + dElevation).coerceIn(0.2f, 1.45f)
     }
 
     fun zoomBy(factor: Float) {
+        followUser = false
         radius = (radius / factor).coerceIn(0.9f, 6f)
     }
 
@@ -205,12 +214,7 @@ class Map3DRenderer : GLSurfaceView.Renderer {
             drawBuffer(buf, wallVertCount)
         }
 
-        // Route ribbon: darker green casing under a bright green core.
-        pathCasingBuf?.let { buf ->
-            GLES20.glUniform1f(uUseTex, 0f)
-            GLES20.glUniform4f(uColor, 0.08f, 0.55f, 0.25f, 1f) // #158040
-            drawBuffer(buf, pathCasingCount)
-        }
+        // Route: spaced chevron arrows along the planned path.
         pathCoreBuf?.let { buf ->
             GLES20.glUniform1f(uUseTex, 0f)
             GLES20.glUniform4f(uColor, 0.133f, 0.773f, 0.369f, 1f) // #22C55E
@@ -326,33 +330,72 @@ class Map3DRenderer : GLSurfaceView.Renderer {
     }
 
     private fun buildPath() {
-        if (routeCells.size < 2) { pathCoreBuf = null; pathCasingBuf = null; return }
-        pathCoreBuf = buildRibbon(cell * 7.0f, cell * 6.5f).also { pathCoreCount = it.capacity() / 8 }
-        pathCasingBuf = buildRibbon(cell * 11.5f, cell * 5.0f).also { pathCasingCount = it.capacity() / 8 }
+        if (routeCells.size < 2) {
+            pathCoreBuf = null
+            pathCasingBuf = null
+            pathCoreCount = 0
+            pathCasingCount = 0
+            return
+        }
+        pathCasingBuf = null
+        pathCasingCount = 0
+        val built = buildArrowSequence()
+        if (built == null) {
+            pathCoreBuf = null
+            pathCoreCount = 0
+            return
+        }
+        pathCoreBuf = built.first
+        pathCoreCount = built.second
     }
 
-    private fun buildRibbon(halfWidth: Float, y: Float): FloatBuffer {
-        val data = ArrayList<Float>(routeCells.size * 6 * 8)
+    /** Places flat chevron arrows along the route at regular spacing. */
+    private fun buildArrowSequence(): Pair<FloatBuffer, Int>? {
+        val data = ArrayList<Float>(routeCells.size * 3 * 8)
+        val y = cell * 6.5f
+        val arrowLen = cell * 12f
+        val arrowHalfW = cell * 3.5f
+        val spacing = cell * 20f
+        var distSinceLast = spacing
+
         for (i in 0 until routeCells.size - 1) {
             val ax = wx(routeCells[i].x.toFloat()); val az = wz(routeCells[i].y.toFloat())
             val bx = wx(routeCells[i + 1].x.toFloat()); val bz = wz(routeCells[i + 1].y.toFloat())
             var dx = bx - ax; var dz = bz - az
-            val len = kotlin.math.sqrt(dx * dx + dz * dz).takeIf { it > 1e-7f } ?: continue
-            dx /= len; dz /= len
-            val px = -dz * halfWidth; val pz = dx * halfWidth // perpendicular in XZ
-            // Quad a+ , a- , b- , b+  (normal up).
-            quad(
-                data,
-                ax + px, y, az + pz,
-                ax - px, y, az - pz,
-                bx - px, y, bz - pz,
-                bx + px, y, bz + pz,
-                0f, 1f, 0f,
-            )
+            val segLen = kotlin.math.sqrt(dx * dx + dz * dz).takeIf { it > 1e-7f } ?: continue
+            dx /= segLen; dz /= segLen
+
+            var t = 0f
+            while (t < segLen) {
+                if (distSinceLast >= spacing) {
+                    addArrow(data, ax + dx * t, y, az + dz * t, dx, dz, arrowLen, arrowHalfW)
+                    distSinceLast = 0f
+                }
+                val step = minOf(spacing - distSinceLast, segLen - t)
+                distSinceLast += step
+                t += step
+            }
         }
+
+        if (data.isEmpty()) return null
         val arr = FloatArray(data.size)
         for (i in data.indices) arr[i] = data[i]
-        return arr.toBuffer()
+        return arr.toBuffer() to data.size / 8
+    }
+
+    private fun addArrow(
+        out: ArrayList<Float>,
+        cx: Float, y: Float, cz: Float,
+        dx: Float, dz: Float,
+        length: Float, halfWidth: Float,
+    ) {
+        val px = -dz * halfWidth
+        val pz = dx * halfWidth
+        val backX = cx - dx * length * 0.45f
+        val backZ = cz - dz * length * 0.45f
+        val tipX = cx + dx * length * 0.55f
+        val tipZ = cz + dz * length * 0.55f
+        tri(out, tipX, y, tipZ, backX + px, y, backZ + pz, backX - px, y, backZ - pz)
     }
 
     private fun buildWalls() {
@@ -386,9 +429,9 @@ class Map3DRenderer : GLSurfaceView.Renderer {
 
     /** 3-step ascending staircase icon, centered at origin, sized relative to [cell]. */
     private fun buildStairsIcon() {
-        val sw = cell * 14f    // width per step
-        val sd = cell * 20f    // depth of each step
-        val sh = cell * 16f    // height of one step riser
+        val sw = cell * 18f    // width per step
+        val sd = cell * 26f    // depth of each step
+        val sh = cell * 20f    // height of one step riser
         val steps = 3
         val totalW = sw * steps
         val data = ArrayList<Float>()
@@ -404,11 +447,11 @@ class Map3DRenderer : GLSurfaceView.Renderer {
 
     /** Doorframe-shaped elevator icon, centered at origin, sized relative to [cell]. */
     private fun buildElevatorIcon() {
-        val ph = cell * 48f    // pillar height
-        val pw = cell * 8f     // pillar width & depth
-        val gap = cell * 16f   // opening between pillars
+        val ph = cell * 60f    // pillar height
+        val pw = cell * 10f    // pillar width & depth
+        val gap = cell * 20f   // opening between pillars
         val totalW = pw * 2 + gap
-        val barH = cell * 10f  // header bar height
+        val barH = cell * 13f  // header bar height
         val data = ArrayList<Float>()
         // Left pillar
         addBox(data, -totalW / 2f, 0f, -pw / 2f, pw, ph, pw)
